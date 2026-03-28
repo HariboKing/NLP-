@@ -1,0 +1,1002 @@
+# PRODUCT OUTLINE
+
+## 1. Product summary
+
+### Working title
+NLP Trainer Support Platform
+
+### Product vision
+Een webapp waarmee NLP-opleiders hun studenten tussen trainingsdagen door actief kunnen laten oefenen, reflecteren en aantoonbaar kunnen laten groeien in zowel theoretische kennis als praktische analysevaardigheden.
+
+### Core problem
+NLP-opleidingen bevatten veel stof, veel modellen, veel terminologie en veel nuance. In de praktijk is er vaak wel lesmateriaal, maar geen goed digitaal oefen- en volgplatform dat:
+
+- theorie omzet in concrete oefenvormen;
+- praktische analysevaardigheden laat trainen;
+- onderscheid maakt tussen leren en examineren;
+- trainers zicht geeft op voortgang, foutenpatronen en feedbackmomenten;
+- bruikbaar is voor meerdere opleiders met eigen stijl en content.
+
+### Value proposition
+Voor studenten:
+- altijd toegang tot lesstof, oefeningen en voortgang;
+- oefenen op eigen tempo in `learn mode` of `exam mode`;
+- duidelijke feedback op kennis, analyse en reflectie;
+- zichtbaar maken wat nog onvoldoende beheerst wordt.
+
+Voor trainers en opleiders:
+- opdrachten toewijzen per groep, module of student;
+- zien waar studenten vastlopen;
+- sneller feedback geven op open antwoorden;
+- certificering beter onderbouwen met data;
+- lesstof centraliseren in een schaalbaar platform.
+
+### Product scope
+De eerste versie is een browsergebaseerde webapp. Een mobiele app is expliciet een latere fase; het MVP moet wel goed bruikbaar zijn op mobiel via responsive web.
+
+### Strategic product principle
+De kern van het product is niet "content tonen", maar "leren versterken via actieve verwerking". Daarom moet de applicatie vanaf het begin gebouwd worden rondom:
+
+- curriculumstructuur;
+- oefentypes;
+- feedback;
+- progress tracking;
+- trainer workflows.
+
+### Assumptions
+- Aanname: de eerste doelgroep bestaat uit Nederlandse NLP-opleiders en hun studenten.
+- Aanname: de eerste inhoudelijke focus ligt op `Practitioner`, later uitbreidbaar naar `Master` en andere trajecten.
+- Aanname: certificering is opleider-afhankelijk, dus de app moet certificeringsregels configureerbaar maken, maar niet volledig complex in het MVP.
+
+## 2. Users and roles
+
+### Primary roles
+
+#### Student
+Doelen:
+- lesstof begrijpen;
+- oefeningen maken;
+- reflecteren;
+- voortgang volgen;
+- gericht oefenen voor certificering.
+
+Belangrijkste rechten:
+- eigen programma's en modules bekijken;
+- toegewezen oefeningen maken;
+- feedback ontvangen;
+- voortgang en scores zien;
+- reflecties invullen;
+- materiaal raadplegen.
+
+#### Trainer
+Doelen:
+- studenten begeleiden;
+- opdrachten klaarzetten;
+- voortgang volgen;
+- feedback geven;
+- beoordelen of iemand klaar is voor certificering.
+
+Belangrijkste rechten:
+- content toewijzen;
+- inzendingen beoordelen;
+- feedback geven;
+- groepen beheren;
+- voortgang per student of groep bekijken;
+- exam mode activeren voor specifieke onderdelen.
+
+### Secondary roles
+
+#### Organization Admin
+Doelen:
+- de omgeving van een opleider beheren.
+
+Belangrijkste rechten:
+- trainers en studenten uitnodigen;
+- programma's beheren;
+- thema-instellingen beheren;
+- certificeringsinstellingen op organisatieniveau beheren;
+- rapportages bekijken.
+
+#### Platform Admin
+Doelen:
+- meerdere opleiders onboarden;
+- support en configuratie doen;
+- tenant-configuratie beheren.
+
+Belangrijkste rechten:
+- organisaties aanmaken;
+- globale instellingen en support tooling beheren.
+
+### Recommendation for MVP roles
+Voor het MVP zijn deze rollen voldoende:
+
+- `Student`
+- `Trainer`
+- `Organization Admin`
+- `Platform Admin`
+
+Geen aparte rol voor "Content Editor" in het MVP; dat kan voorlopig onder `Trainer` of `Organization Admin` vallen.
+
+## 3. MVP recommendation
+
+### Best practical MVP
+Een multi-organization-ready webapp met:
+
+- login en rolgebaseerde toegang;
+- een curriculumstructuur per programma;
+- lesmateriaal per module;
+- oefenbibliotheek met enkele krachtige oefentypes;
+- trainer assignments;
+- student progress tracking;
+- trainer feedback;
+- learn mode en exam mode;
+- eenvoudige organisatiebranding.
+
+### Why this MVP
+Dit levert direct commerciele waarde op zonder te vroeg te investeren in complexe AI, video-analyse of uitgebreide white-label automation.
+
+### MVP boundaries
+Wel in MVP:
+- theorie oefenen;
+- tekstgebaseerde analyse oefenen;
+- open reflectie;
+- handmatige trainerfeedback;
+- basiscertificeringslogica;
+- voortgang per student en module;
+- handmatige organisatie-onboarding;
+- eenvoudige theming per organisatie.
+
+Niet in MVP:
+- mobiele native app;
+- geautomatiseerde video- of mimiek-analyse;
+- geavanceerde audio scoring;
+- volledig self-service white-label setup;
+- marketplace voor content;
+- uitgebreide AI-coaching;
+- realtime lesomgeving;
+- complexe SCORM- of LMS-koppelingen.
+
+### MVP content strategy
+Start met een duidelijk leerpad:
+
+- `NLP Practitioner`
+
+Binnen dit pad:
+- theoretische kennis;
+- praktische tekstanalyse;
+- reflectie;
+- voorbereidingspad voor certificering.
+
+### Recommended MVP exercise types
+Het MVP moet niet te veel oefenvormen hebben, maar wel de juiste:
+
+1. `Multiple choice / single choice`
+2. `Multiple select`
+3. `Match pairs`
+4. `Short answer with keyword or rubric check`
+5. `Open reflection`
+6. `Text analysis exercise` waarbij een student een patroon of onderdeel uit een tekst moet herkennen en benoemen
+7. `Trainer-reviewed case exercise`
+
+### Exercise types for later phases
+- image hotspot oefeningen;
+- audiofragmentanalyse;
+- video- en non-verbal observatie;
+- adaptive learning;
+- AI-assisted feedback;
+- speech-to-text analyses;
+- scenario-based branching assessments.
+
+## 4. Core features
+
+### 4.1 Authentication and access
+- e-mail login;
+- password reset;
+- role-based permissions;
+- organization-based isolation;
+- invitation flow voor trainers en studenten.
+
+### 4.2 Curriculum and content
+- programma's zoals `Practitioner` en later `Master`;
+- modules, hoofdstukken, onderwerpen en concepten;
+- materialen zoals slides, reader-samenvatting, verdieping en naslag;
+- tags voor modellen, personen, technieken en thema's.
+
+### 4.3 Exercise delivery
+- oefeningen per module of onderwerp;
+- losse oefensets of vaste assignments;
+- learn mode en exam mode;
+- poginggeschiedenis per student.
+
+### 4.4 Feedback and coaching
+- automatische feedback waar mogelijk;
+- modelantwoorden;
+- trainerfeedback op open antwoorden;
+- reflectievragen na afronding;
+- markering van zwakke gebieden.
+
+### 4.5 Progress tracking
+- voortgang per programma, module en onderwerp;
+- score per oefentype;
+- exam readiness;
+- zichtbaar verschil tussen "geleerd" en "gecertificeerd".
+
+### 4.6 Trainer operations
+- oefeningen toewijzen aan groep of individu;
+- inzendingen beoordelen;
+- voortgangsoverzicht bekijken;
+- signalering van achterstand of lage scores.
+
+### 4.7 Organization branding
+- logo upload;
+- primaire en secundaire kleur;
+- achtergrond- of hero-afbeelding optioneel;
+- organisatie-specifieke naamgeving.
+
+Aanbeveling:
+branding vanaf het begin technisch meenemen in het data model, maar functioneel klein houden in het MVP.
+
+## 5. Exercise system
+
+### Product principle
+De oefenengine is het hart van het product. De architectuur moet daarom niet worden gebouwd rondom pagina's, maar rondom `exercise templates`, `attempts`, `responses`, `scoring` en `feedback`.
+
+### Learning modes
+
+#### Learn mode
+Doel:
+- kennis opbouwen;
+- onbeperkt oefenen;
+- uitleg en hints ontvangen;
+- fouten gebruiken als leermoment.
+
+Gedrag:
+- meerdere pogingen toegestaan;
+- directe feedback mogelijk;
+- modelantwoorden zichtbaar na afronding;
+- scores tellen mee voor voortgang, maar niet per se voor certificering.
+
+#### Exam mode
+Doel:
+- formele toetsing;
+- certificeringsondersteuning;
+- reproduceerbare beoordeling.
+
+Gedrag:
+- beperkte pogingen;
+- mogelijk uitgestelde feedback;
+- strengere scoretelling;
+- trainerreview op open antwoorden;
+- pass/fail logica op assignment-niveau.
+
+### Exercise taxonomy
+
+#### A. Theory exercises
+Gebruik voor:
+- begrippen;
+- definities;
+- namen van modellen;
+- volgordes;
+- toepassingen;
+- koppelingen tussen concept en betekenis.
+
+Voorbeelden:
+- "Wat hoort bij het metamodel?"
+- "Welke aanname hoort bij deze beschrijving?"
+- "Zet de stappen van het outcome frame in de juiste volgorde."
+
+#### B. Practical text analysis exercises
+Gebruik voor:
+- herkennen van linguistische patronen;
+- classificeren van taalfragmenten;
+- benoemen van ontbrekende informatie;
+- bepalen welke interventievraag passend is.
+
+Voorbeelden:
+- student leest een zin en kiest welk meta model patroon aanwezig is;
+- student markeert welk fragment een nominalisatie bevat;
+- student schrijft een passende verduidelijkingsvraag;
+- student vergelijkt twee uitspraken en benoemt vervorming of generalisatie.
+
+#### C. Reflection exercises
+Gebruik voor:
+- integratie van lesstof;
+- persoonlijke leerdoelen;
+- self-assessment;
+- voorbereiding op trainergesprek.
+
+Voorbeelden:
+- "Waar merkte je deze week een taalpatroon op?"
+- "Welke interventie past nog niet natuurlijk bij je?"
+
+#### D. Trainer-reviewed case exercises
+Gebruik voor:
+- praktijkcasussen;
+- open analyses;
+- complexere vaardigheidsbeoordeling;
+- examinatievoorbereiding.
+
+### Scoring modes
+
+#### Automatic scoring
+Voor:
+- multiple choice;
+- match;
+- vaste rubrics;
+- keyword checks.
+
+#### Hybrid scoring
+Voor:
+- short answer met automatische eerste check;
+- trainer kan bevestigen, corrigeren of aanvullen.
+
+#### Manual scoring
+Voor:
+- open casussen;
+- reflecties;
+- analysevragen met nuance.
+
+### Content structure recommendation
+Jouw aangeleverde practitioner-structuur moet worden opgeslagen als:
+
+- `Program`
+- `Module`
+- `Topic`
+- `Subtopic`
+- `Concept`
+- `Exercise`
+
+Voorbeeld:
+- Program: `NLP Practitioner`
+- Module: `Fundamenten van NLP`
+- Topic: `Fundament 3. Zintuigen`
+- Subtopic: `Auditief`
+- Concept: `auditieve predikaten`
+- Exercise: `Herken auditieve predikaten in tekstfragmenten`
+
+### Key MVP requirement for the exercise engine
+Elke oefening moet minimaal deze velden hebben:
+
+- titel;
+- beschrijving of instructie;
+- oefentype;
+- leerdoel;
+- gekoppeld curriculumonderdeel;
+- moeilijkheid;
+- mode (`learn`, `exam`, of beide);
+- scorelogica;
+- feedbacklogica;
+- versie;
+- status (`draft`, `published`, `archived`).
+
+### Later architecture requirement
+De engine moet later nieuwe oefentypes kunnen toevoegen zonder dat de hele app herschreven hoeft te worden. Daarom is een template-based model belangrijker dan hardcoded quizpagina's.
+
+## 6. User flows
+
+### 6.1 Student onboarding flow
+1. Student ontvangt uitnodiging van trainer of organisatie.
+2. Student maakt account aan.
+3. Student kiest of krijgt toegang tot een programma.
+4. Dashboard toont actieve modules, open opdrachten en voortgang.
+
+### 6.2 Student learning flow
+1. Student opent dashboard.
+2. Student kiest module of toegewezen assignment.
+3. Student bekijkt relevante materialen.
+4. Student maakt oefeningen in learn mode.
+5. Student ontvangt feedback en modelantwoord.
+6. Student vult optioneel reflectie in.
+7. Voortgang wordt bijgewerkt.
+
+### 6.3 Student exam-prep flow
+1. Student ziet welke certificeringsonderdelen nog onvoldoende zijn.
+2. Student maakt aanbevolen oefensets.
+3. Student doet exam mode assignment.
+4. Resultaat wordt opgeslagen als beoordelingsmoment.
+5. Open antwoorden gaan indien nodig naar trainerreview.
+
+### 6.4 Trainer assignment flow
+1. Trainer opent groep of student.
+2. Trainer kiest module, oefenset of maakt assignment.
+3. Trainer stelt mode, deadline en doelgroep in.
+4. Studenten ontvangen melding in hun dashboard.
+
+### 6.5 Trainer review flow
+1. Trainer ziet nieuwe inzendingen.
+2. Trainer opent antwoord per student.
+3. Trainer beoordeelt open onderdelen.
+4. Trainer geeft tekstfeedback en eventueel scorecorrectie.
+5. Student ziet feedback terug in resultaten.
+
+### 6.6 Certification support flow
+1. Trainer bekijkt voortgangsoverzicht.
+2. Systeem toont of drempels behaald zijn op theorie en vaardigheden.
+3. Trainer maakt eigen eindafweging.
+4. Status wordt gemarkeerd als `ready`, `not ready`, of `manual review`.
+
+### 6.7 Organization admin flow
+1. Organisatie wordt aangemaakt.
+2. Branding wordt ingesteld.
+3. Trainers worden uitgenodigd.
+4. Programma's worden geactiveerd.
+5. Studenten worden toegevoegd via uitnodiging of import.
+
+## 7. Screens/pages overview
+
+### Public and auth
+- Login
+- Forgot password
+- Accept invitation
+
+### Student area
+- Student dashboard
+- Program overview
+- Module detail page
+- Assignment page
+- Exercise player
+- Exercise result page
+- Reflection page
+- Progress page
+- Profile and settings
+
+### Trainer area
+- Trainer dashboard
+- Groups overview
+- Student detail page
+- Assignment builder
+- Submissions and review queue
+- Submission review page
+- Progress analytics
+- Content library
+
+### Organization admin area
+- Organization settings
+- Branding settings
+- User management
+- Program activation and settings
+
+### Platform admin area
+- Organizations overview
+- Tenant setup page
+- Support and impersonation tools
+
+### Screen priority for MVP
+Build first:
+- login and invite;
+- student dashboard;
+- module page;
+- exercise player;
+- trainer dashboard;
+- assignment page;
+- review queue.
+
+Build second:
+- progress analytics;
+- organization branding settings;
+- content library management UX.
+
+Build later:
+- advanced reporting;
+- certification center;
+- richer content editors;
+- tenant self-service onboarding.
+
+## 8. Data model/entities
+
+### Tenant and identity
+
+#### Organization
+- id
+- name
+- slug
+- status
+- branding settings
+- created_at
+
+#### User
+- id
+- first_name
+- last_name
+- email
+- password_hash or auth_provider_id
+- status
+- created_at
+
+#### Membership
+- id
+- user_id
+- organization_id
+- role
+- active
+
+### Learning structure
+
+#### Program
+- id
+- organization_id or global template id
+- title
+- level (`Practitioner`, `Master`, etc.)
+- description
+- status
+
+#### Module
+- id
+- program_id
+- title
+- sort_order
+- description
+
+#### Topic
+- id
+- module_id
+- title
+- sort_order
+
+#### Concept
+- id
+- topic_id
+- title
+- description
+- tags
+
+#### Resource
+- id
+- module_id or topic_id
+- type (`slides`, `reader`, `reference`, `audio`, `video`, `link`)
+- title
+- file_url
+- visibility
+
+### Exercise domain
+
+#### ExerciseTemplate
+- id
+- organization_id nullable
+- program_id nullable
+- title
+- type
+- mode_support
+- prompt
+- instructions
+- difficulty
+- scoring_type
+- version
+- status
+
+#### ExerciseCurriculumLink
+- id
+- exercise_id
+- module_id nullable
+- topic_id nullable
+- concept_id nullable
+
+#### ExerciseOption
+- id
+- exercise_id
+- label
+- value
+- is_correct
+- sort_order
+
+#### ExerciseRubric
+- id
+- exercise_id
+- rubric_json
+
+#### Assignment
+- id
+- organization_id
+- title
+- description
+- mode
+- assigned_by_user_id
+- due_date
+- status
+
+#### AssignmentItem
+- id
+- assignment_id
+- exercise_id
+- sort_order
+
+#### AssignmentTarget
+- id
+- assignment_id
+- target_type (`group`, `student`)
+- target_id
+
+### Learning activity
+
+#### Attempt
+- id
+- assignment_id nullable
+- exercise_id
+- student_user_id
+- started_at
+- submitted_at
+- status
+- raw_score
+- normalized_score
+- passed
+
+#### Response
+- id
+- attempt_id
+- question_key or item_key
+- response_value
+- auto_score
+- manual_score
+- feedback
+
+#### Review
+- id
+- attempt_id
+- reviewer_user_id
+- score_override
+- feedback
+- reviewed_at
+
+#### ReflectionEntry
+- id
+- student_user_id
+- module_id nullable
+- assignment_id nullable
+- prompt
+- response_text
+- visibility
+
+### Progress and certification
+
+#### ProgressSnapshot
+- id
+- student_user_id
+- program_id
+- module_id nullable
+- completion_percent
+- mastery_score
+- updated_at
+
+#### CertificationRule
+- id
+- organization_id
+- program_id
+- name
+- requirements_json
+
+#### CertificationDecision
+- id
+- student_user_id
+- program_id
+- status
+- decided_by_user_id
+- decided_at
+- notes
+
+### Branding
+
+#### OrganizationTheme
+- id
+- organization_id
+- logo_url
+- primary_color
+- secondary_color
+- accent_color
+- background_image_url nullable
+
+## 9. Technical outline
+
+### Recommended architecture
+
+#### Frontend
+- `Next.js` with TypeScript
+- server-rendered app with authenticated dashboards
+- component-based UI
+- responsive first
+
+#### Backend
+Aanbeveling voor MVP:
+- gebruik een full-stack web platform in plaats van losse frontend/backend deployment complexity;
+- bijvoorbeeld `Next.js` met server actions of route handlers voor het MVP, of een gescheiden API alleen als team en schaal dat echt vereisen.
+
+#### Database
+- `PostgreSQL`
+
+Waarom:
+- sterke relationele structuur;
+- goed voor multi-tenant data;
+- goed voor reporting;
+- volwassen tooling.
+
+#### ORM and data access
+- `Prisma` of vergelijkbare volwassen ORM
+
+#### Authentication
+- `Auth.js`, `Clerk`, of `Supabase Auth`
+
+Aanbeveling:
+- kies een oplossing met degelijke invite flows en role support om MVP-tijd te besparen.
+
+#### File storage
+- object storage voor slides, pdf's, audio en afbeeldingen;
+- bijvoorbeeld S3-compatible storage.
+
+#### Hosting
+- EU-hosting voorkeur vanwege privacy;
+- frontend of app hosting plus managed Postgres en storage.
+
+### Multi-tenant strategy
+Niet meteen full white-label enterprise bouwen, maar wel technisch voorbereiden:
+
+- elke user hoort bij een of meer organisaties;
+- data altijd filteren op `organization_id`;
+- branding per organisatie laden;
+- content kan globaal of organisatie-specifiek zijn.
+
+### Content architecture recommendation
+Gebruik een hybride model:
+
+- curriculum en exercise metadata in relationele tabellen;
+- oefenspecifieke configuratie deels in JSON;
+- rijke content als markdown of rich text;
+- bestanden in object storage.
+
+### Why this matters
+Sommige oefentypes zijn sterk gestructureerd en andere krijgen later rijkere interactie. Een volledig vast schema wordt te star; alleen JSON wordt te rommelig.
+
+### Exercise rendering strategy
+De app moet een `exercise player` hebben die op basis van `exercise.type` de juiste UI rendert. Dat voorkomt losse, hardcoded quiz-apps per use case.
+
+### Reporting strategy
+Voor MVP:
+- progress snapshots periodiek of event-based updaten;
+- eenvoudige aggregaties per student, module en oefentype.
+
+Later:
+- uitgebreidere analytics;
+- cohort analyses;
+- predictive readiness indicators.
+
+### Content authoring strategy
+Voor MVP:
+- eenvoudige adminformulieren of seed/import flows;
+- geen geavanceerde visuele content builder in fase 1.
+
+Aanname:
+- de eerste content kan handmatig of via import worden ingevoerd vanuit bestaande manuals en slides.
+
+## 10. Security and privacy
+
+### Core security requirements
+- role-based authorization op elke gevoelige route;
+- organization data isolation;
+- veilige wachtwoordafhandeling of externe auth provider;
+- server-side permission checks;
+- audit logging voor belangrijke beheeracties.
+
+### Privacy requirements
+- minimale persoonsgegevens opslaan;
+- duidelijk onderscheid tussen leerdata en certificeringsdata;
+- bewaartermijnen definieren;
+- mogelijkheid om accounts te deactiveren;
+- AVG/GDPR-conforme verwerkers en hosting.
+
+### Sensitive data considerations
+Hoewel dit geen medisch dossier is, bevat het mogelijk:
+- persoonlijke voortgang;
+- reflecties;
+- beoordelingsinformatie;
+- trainerfeedback.
+
+Daarom moet het systeem deze data behandelen als vertrouwelijke onderwijsdata.
+
+### MVP security checklist
+- HTTPS overal;
+- rate limiting op login;
+- secure session handling;
+- file upload validation;
+- virus scanning of strikte bestandsrestricties indien nodig;
+- logging zonder gevoelige data in plain text;
+- back-up en herstelplan.
+
+### Privacy recommendation
+Host bij voorkeur binnen de EU en leg in het product en contractueel vast wie eigenaar is van:
+
+- studentenaccounts;
+- content van de opleider;
+- beoordelingsdata;
+- exports.
+
+## 11. Build roadmap
+
+### Phase 0: Product foundation
+Doel:
+de juiste scope vastzetten voordat ontwikkeling versnelt.
+
+Build:
+- product outline;
+- content mapping van practitioner-curriculum;
+- UX-wireframes voor student, trainer en exercise player;
+- keuze van stack en hosting.
+
+### Phase 1: Core MVP foundation
+Build first:
+- authentication;
+- organization en user roles;
+- program, module en content structuur;
+- student dashboard;
+- trainer dashboard;
+- assignment model;
+- basic progress tracking.
+
+Business value:
+- platform is bruikbaar als leerportaal;
+- fundament staat voor oefenfunctionaliteit.
+
+### Phase 2: Exercise MVP
+Build second:
+- exercise templates;
+- exercise player;
+- multiple choice, multi-select en match;
+- short answer met keyword check;
+- reflection exercises;
+- attempt storage;
+- auto scoring.
+
+Business value:
+- studenten kunnen daadwerkelijk oefenen;
+- trainers krijgen eerste meetbare leerdata.
+
+### Phase 3: Trainer review and assessment
+Build third:
+- open case exercises;
+- review queue;
+- feedback tooling;
+- exam mode behavior;
+- pass/fail thresholds;
+- certification readiness indicators.
+
+Business value:
+- platform wordt inzetbaar als begeleidings- en beoordelingsinstrument.
+
+### Phase 4: NLP-specific practical training depth
+Build later:
+- text analysis exercise type met fragmentselectie of patroonclassificatie;
+- rijkere rubrics;
+- content import tooling;
+- oefensets per model of techniek.
+
+Business value:
+- echte differentiatie ten opzichte van generieke quizsoftware.
+
+### Phase 5: Multi-organization scaling
+Build later:
+- self-service organization setup;
+- uitgebreidere theming;
+- content cloning per organisatie;
+- reporting per opleider;
+- billing of subscription layer.
+
+### Phase 6: Advanced capabilities
+Much later:
+- audio-oefeningen;
+- video- en non-verbal observatie;
+- AI-assisted feedback;
+- native mobile app;
+- advanced analytics.
+
+## 12. Open questions and assumptions
+
+### Open questions
+- Moet een student toegang kunnen hebben tot meerdere organisaties tegelijk?
+- Is certificering puur ondersteunend, of moet de app formele eindbeslissingen registreren?
+- Hoeveel vrijheid krijgen trainers om zelf oefeningen te maken in het MVP?
+- Moet content per opleider uniek zijn, of begint het platform met een centrale basisbibliotheek?
+- Hoe belangrijk is meertaligheid op korte termijn?
+- Moet een student in exam mode tijdslimieten krijgen?
+- Moeten studenten materiaal eerst doorlopen voordat oefeningen beschikbaar worden?
+- Is groepscoaching of peer feedback gewenst in een latere fase?
+- Komt er koppeling met bestaande websites, CRM of leeromgevingen?
+
+### Assumptions used in this outline
+- Aanname: het eerste commerciele product wordt gestart met een kernprogramma: `NLP Practitioner`.
+- Aanname: open praktijkoefeningen zijn belangrijker dan flashy multimedia in het begin.
+- Aanname: trainers accepteren in fase 1 een eenvoudige contentbeheerervaring zolang oefenen en volgen goed werken.
+- Aanname: branding is commercieel belangrijk, maar hoeft in MVP niet verder te gaan dan thema en logo.
+- Aanname: automatische scoring is nuttig, maar menselijke review blijft essentieel voor nuance en certificering.
+
+## 13. Final recommendation
+
+### Product recommendation
+Bouw geen generieke "quiz-app", maar een `learning and assessment platform for NLP training` met twee expliciete leermodi:
+
+- `Learn mode` voor opbouw, herhaling en reflectie
+- `Exam mode` voor toetsing en certificeringsondersteuning
+
+### Strategic recommendation
+De grootste productkans zit in de combinatie van:
+
+- rijke curriculumstructuur;
+- NLP-specifieke oefenvormen;
+- trainerfeedback;
+- voortgangs- en certificeringslogica;
+- multi-organization inzetbaarheid.
+
+### Architecture recommendation
+Start met een degelijk multi-tenant fundament, maar houd onboarding en branding voorlopig eenvoudig. Investeer vroeg in:
+
+- rol- en organisatiestructuur;
+- curriculum en data model;
+- uitbreidbare oefenengine.
+
+Niet vroeg investeren in:
+
+- AI;
+- video-analyse;
+- mobiele app;
+- complexe white-label automation.
+
+### Delivery recommendation
+De beste route is:
+
+1. eerst het platformfundament;
+2. daarna een kleine set krachtige oefentypes;
+3. daarna trainerreview en exam mode;
+4. daarna NLP-specifieke verdieping zoals tekstanalyse en later audio of video.
+
+---
+
+## A. Best MVP version
+
+Een responsive webapp voor een of meerdere NLP-opleiders met:
+
+- organization-based login;
+- student en trainer dashboards;
+- `NLP Practitioner` curriculum;
+- lesmateriaal per module;
+- assignments;
+- multiple choice, short answer, reflection en basis text analysis;
+- trainer review;
+- progress dashboards;
+- eenvoudige branding per organisatie.
+
+Dit is de beste MVP omdat het direct verkoopbaar, inhoudelijk relevant en technisch beheersbaar is.
+
+## B. Best long-term version
+
+Een volwaardig multi-tenant NLP learning platform met:
+
+- meerdere programma's (`Practitioner`, `Master`, specialistische tracks);
+- rijke oefenengine met tekst, audio, beeld en video;
+- AI-assisted feedback;
+- certificeringsworkflows;
+- content import en authoring tools;
+- uitgebreide white-labeling;
+- analytics per student, cohort en opleider;
+- later ook een mobiele app.
+
+## C. What to build first this week
+
+### Highest-value first week output
+
+1. Vastleggen van de definitieve informatie-architectuur.
+   Organisaties, users en roles, programs, modules, topics, concepts, exercises, assignments, attempts en reviews.
+2. UX-schetsen van de kernschermen.
+   Student dashboard, trainer dashboard, exercise player en review page.
+3. Technische basis kiezen.
+   Stack, auth, database en hosting.
+4. Een pilot-curriculum invoeren.
+   `NLP Practitioner`.
+5. Eerste oefenflow definieren.
+   Assignment openen, oefening maken, score opslaan en feedback tonen.
+
+### Concrete recommendation for week 1
+Als we deze week echt iets moeten bouwen, bouw dan niet eerst branding of geavanceerde content-editors. Bouw eerst het fundament van:
+
+- auth;
+- roles;
+- curriculum structure;
+- exercise player shell;
+- attempts en scoring model.
+
+Dat is de kortste route naar een werkende eerste leerervaring.
