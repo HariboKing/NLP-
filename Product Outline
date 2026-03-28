@@ -1,0 +1,502 @@
+# PRODUCT_OUTLINE
+
+## 1. Product summary
+
+### Product concept
+Een webapp voor NLP-trainers en hun studenten die coaching tussen sessies ondersteunt. De app combineert oefening, reflectie, voortgangsregistratie en trainerfeedback in een eenvoudige online omgeving.
+
+### Primary problem
+Veel NLP-trajecten verliezen momentum tussen live sessies. Studenten vergeten oefeningen, reflecteren ongestructureerd en trainers missen zicht op voortgang en blokkades. Daardoor neemt de ervaren waarde van het traject af en kost opvolging extra handmatig werk.
+
+### Product promise
+De app moet trainers helpen om begeleiding schaalbaar te maken en studenten helpen om consequenter te oefenen, inzicht op te bouwen en resultaten zichtbaar te maken.
+
+### Value proposition
+- Voor trainers: minder losse e-mails/WhatsApp-opvolging, beter zicht op engagement en meer grip op huiswerk.
+- Voor studenten: duidelijke opdrachten, reflectieritme, overzicht van voortgang en centrale feedback.
+- Voor trainingspraktijken: professionelere dienstverlening en een extra digitaal product rondom het trainingsaanbod.
+
+### Assumptions
+- Assumptie: de eerste doelgroep bestaat uit zelfstandige NLP-trainers of kleine opleidingspraktijken, niet uit grote onderwijsinstellingen.
+- Assumptie: de eerste versie ondersteunt individuele trajecten en kleine groepen, geen complexe multi-tenant enterprise-setup.
+- Assumptie: “NLP” betekent hier neuro-linguistisch programmeren als coachings- en trainingscontext.
+
+## 2. Users and roles
+
+### Student
+Doel:
+- Oefeningen ontvangen en uitvoeren
+- Reflecties vastleggen
+- Persoonlijke voortgang volgen
+- Feedback van trainer terugzien
+
+Belangrijkste behoeften:
+- Lage drempel
+- Duidelijke volgende stap
+- Veilig gevoel bij persoonlijke input
+- Zicht op eigen groei
+
+### Trainer
+Doel:
+- Studenten of groepen begeleiden
+- Oefeningen toewijzen
+- Inzendingen bekijken
+- Feedback geven
+- Voortgang signaleren
+
+Belangrijkste behoeften:
+- Snel overzicht van wie achterloopt
+- Eenvoudig opdrachten kunnen hergebruiken
+- Feedback efficiënt kunnen geven
+- Geen zware administratie
+
+### Optional future roles
+- Practice owner/admin: beheert trainers, branding, abonnementen en instellingen
+- Group assistant/co-coach: mag meekijken en feedback geven zonder volledige beheerrechten
+
+## 3. MVP recommendation
+
+### MVP objective
+Bewijs dat trainers structureel digitale follow-up willen inzetten en dat studenten de app daadwerkelijk gebruiken tussen sessies.
+
+### MVP success criteria
+- Trainers kunnen binnen 10 minuten een student aanmaken en een eerste oefening toewijzen.
+- Studenten kunnen zonder uitleg inloggen, een oefening afronden en reflectie insturen.
+- Trainers kunnen in een dashboard direct zien wie klaar is, wie vastloopt en waar feedback nodig is.
+- Minimaal 1 complete feedbacklus werkt: opdracht -> inzending -> feedback -> vervolgactie.
+
+### Recommended MVP scope
+In scope:
+- Login voor trainer en student
+- Dashboard per rol
+- Oefenbibliotheek met vaste templates
+- Oefening toewijzen aan individuele student
+- Oefening uitvoeren en reflectie opslaan
+- Statussen: assigned, in_progress, submitted, reviewed
+- Trainerfeedback op ingezonden oefening
+- Basis voortgangsoverzicht per student
+
+Out of scope for MVP:
+- Betalingen en abonnementen
+- Video calls of chat
+- AI-coach of AI-feedback
+- Geavanceerde analytics
+- Certificering of examenlogica
+- White-labeling per trainer
+- Mobiele native app
+- Complex groepsbeheer met meerdere cohorten en programma’s
+
+### Why this MVP
+Deze scope levert direct bedrijfswaarde op zonder te vervallen in een groot leerplatform. Het product blijft dicht bij de kern: opdracht, reflectie, feedback en progressie.
+
+## 4. Core features
+
+### Authentication and access
+- E-mail + wachtwoord login
+- Wachtwoord reset
+- Rolgebaseerde toegang voor trainer en student
+
+### Trainer workspace
+- Dashboard met studentenlijst en statusoverzicht
+- Oefeningen toewijzen
+- Inzendingen openen
+- Feedback plaatsen
+- Basis voortgang bekijken
+
+### Student workspace
+- Vandaag/nu overzicht met openstaande opdrachten
+- Oefening openen en afronden
+- Reflectie invullen
+- Ontvangen feedback teruglezen
+- Persoonlijke progressie bekijken
+
+### Progress tracking
+- Aantal toegewezen oefeningen
+- Voltooide oefeningen
+- Laatste activiteit
+- Consistentie/streak of weekactiviteit
+- Subjectieve score per reflectie, bijvoorbeeld confidence of emotional state
+
+### Feedback loop
+- Trainer reageert op inzending
+- Student ziet feedback gekoppeld aan concrete oefening
+- Optioneel markeren als “besproken” of “actie nodig”
+
+## 5. Exercise system
+
+### Exercise types for MVP
+Aanbevolen vaste types:
+1. Reflectie-oefening
+2. Journaling prompt
+3. Situatie-analyse
+4. Gedragsopdracht/practice task
+5. Doelcheck-in
+
+### Exercise structure
+Elke oefening bevat:
+- Titel
+- Korte bedoeling
+- Uitleg/instructie
+- Reflectievragen
+- Optionele schaalvragen
+- Geschatte duur
+- Categorie
+- Moeilijkheid of fase
+
+### Assignment model
+Trainer wijst een oefening toe met:
+- Student
+- Deadline
+- Korte persoonlijke toelichting
+- Prioriteit
+
+### Submission model
+Student levert in met:
+- Antwoorden op open vragen
+- Reflectietekst
+- Zelfscore, bijvoorbeeld 1-10
+- Status
+- Tijdstip van inzending
+
+### MVP content strategy
+- Start met 8 tot 12 hoogwaardige oefentemplates
+- Verdeel over thema’s zoals zelfbeeld, doelen, overtuigingen, communicatie en gedrag
+- Laat trainers in MVP kiezen uit bestaande templates in plaats van volledig eigen templates bouwen
+
+### Later enhancements
+- Trainer kan eigen oefeningen maken
+- Oefeningen bundelen in trajecten
+- Automatische herhaling/reminders
+- Multimedia zoals audio of video-opdrachten
+
+## 6. User flows
+
+### Student flow: first use
+1. Student ontvangt uitnodiging
+2. Student maakt wachtwoord aan en logt in
+3. Student ziet welkomstdashboard en eerste toegewezen oefening
+4. Student opent oefening
+5. Student vult reflectie en antwoorden in
+6. Student dient oefening in
+7. Student ziet bevestiging en voortgangsupdate
+
+### Student flow: returning use
+1. Student logt in
+2. Student ziet openstaande opdrachten en recente feedback
+3. Student opent volgende oefening of leest feedback terug
+4. Student werkt verder of reageert in volgende sessie
+
+### Trainer flow: onboarding a student
+1. Trainer logt in
+2. Trainer maakt student aan
+3. Trainer selecteert oefening uit bibliotheek
+4. Trainer voegt persoonlijke context en deadline toe
+5. Student ontvangt notificatie of ziet opdracht in dashboard
+
+### Trainer flow: reviewing progress
+1. Trainer opent dashboard
+2. Trainer filtert op “submitted” of “behind schedule”
+3. Trainer opent inzending
+4. Trainer leest reflectie
+5. Trainer geeft feedback en markeert als reviewed
+
+## 7. Screens/pages overview
+
+### Shared
+- Login
+- Forgot password
+- Account/profile
+
+### Student pages
+- Student dashboard
+- My exercises list
+- Exercise detail and submission page
+- Progress page
+- Feedback history
+
+### Trainer pages
+- Trainer dashboard
+- Students overview
+- Student detail page
+- Exercise library
+- Assign exercise page/modal
+- Submission review page
+
+### Admin pages for later
+- Trainer management
+- Branding/settings
+- Subscription/billing
+
+## 8. Data model/entities
+
+### User
+- id
+- first_name
+- last_name
+- email
+- password_hash
+- role
+- status
+- created_at
+- last_login_at
+
+### StudentProfile
+- id
+- user_id
+- trainer_id
+- program_name
+- start_date
+- notes
+
+### TrainerProfile
+- id
+- user_id
+- display_name
+- business_name
+- bio
+
+### ExerciseTemplate
+- id
+- title
+- category
+- objective
+- instructions
+- reflection_questions_json
+- scale_questions_json
+- estimated_minutes
+- is_active
+
+### ExerciseAssignment
+- id
+- template_id
+- student_id
+- trainer_id
+- personal_note
+- due_date
+- priority
+- status
+- assigned_at
+
+### ExerciseSubmission
+- id
+- assignment_id
+- answers_json
+- reflection_text
+- self_score
+- submitted_at
+- updated_at
+
+### Feedback
+- id
+- submission_id
+- trainer_id
+- feedback_text
+- feedback_type
+- created_at
+
+### ProgressSnapshot
+MVP-optie:
+- Niet als aparte tabel nodig in eerste versie
+- Kan berekend worden uit assignments en submissions
+
+Later:
+- Voor analytics en performance een samenvattende tabel of materialized view
+
+## 9. Technical outline
+
+### Product shape
+Aanbevolen webapp-architectuur:
+- Responsive web app
+- Trainer en student in dezelfde applicatie
+- Eén codebase, rolgebaseerde UI
+
+### Recommended MVP stack
+Praktische aanbeveling:
+- Frontend: React met Next.js of een vergelijkbaar full-stack web framework
+- Backend: server actions/API routes binnen hetzelfde framework of een lichte Node backend
+- Database: PostgreSQL
+- Auth: managed auth zoals Supabase Auth, Clerk of Auth.js
+- Hosting: Vercel, Railway of vergelijkbare managed stack
+
+### Why this stack
+- Snelle MVP-ontwikkeling
+- Goede balans tussen productiviteit en schaalbaarheid
+- Eenvoudige deployment
+- Minder operationele complexiteit voor kleine teams
+
+### Frontend architecture
+- Rolgebaseerde layout
+- Componenten voor dashboards, lijsten, formulieren, statusbadges en feedbackpanelen
+- Form states voor save draft en submit
+
+### Backend architecture
+- CRUD voor users, assignments, submissions en feedback
+- Server-side autorisatie per rol
+- Audit-relevante timestamps
+
+### Suggested domain modules
+- auth
+- users
+- exercises
+- assignments
+- submissions
+- feedback
+- progress
+
+### API examples
+- `POST /auth/login`
+- `GET /me`
+- `GET /students/:id/assignments`
+- `POST /assignments`
+- `GET /assignments/:id`
+- `POST /assignments/:id/submission`
+- `POST /submissions/:id/feedback`
+
+### Reporting logic
+MVP-berekeningen:
+- completion_rate = completed assignments / total assignments
+- overdue_count = assignments past due date and not submitted
+- last_activity = max(submitted_at, updated_at, feedback_at)
+
+## 10. Security and privacy
+
+### Privacy sensitivity
+De app verwerkt persoonlijke reflecties en mogelijk emotioneel gevoelige gegevens. Daarom moet privacy vanaf het begin serieus worden genomen.
+
+### MVP security requirements
+- Wachtwoorden veilig hashen
+- HTTPS afdwingen
+- Rolgebaseerde autorisatie op serverniveau
+- Studenten mogen alleen eigen gegevens zien
+- Trainers mogen alleen gekoppelde studenten zien
+- Basis audit logging voor belangrijke acties
+
+### Privacy requirements
+- Heldere toestemming en privacytekst
+- Dataminimalisatie: alleen opslaan wat nodig is
+- Verwijder- of anonimiseerproces bij beëindiging traject
+- Redelijke bewaartermijnen definiëren
+
+### Compliance assumptions
+- Assumptie: eerste markt is EU/Nederland, dus AVG/GDPR is relevant
+- Assumptie: er worden geen medische claims gedaan en de app is geen medisch dossier
+
+## 11. Build roadmap
+
+### Phase 1: foundation
+Doel:
+Een werkende kern zonder complexiteit
+
+Bouwen:
+- Auth
+- Rolmodel
+- Oefenbibliotheek met seed content
+- Student dashboard
+- Trainer dashboard
+- Toewijzing + inzending + feedback
+
+### Phase 2: usage and retention
+Doel:
+Meer consistent gebruik en betere coachingswaarde
+
+Bouwen:
+- Reminder e-mails
+- Draft saving
+- Filters en search voor trainer
+- Progress visuals
+- Feedback history
+
+### Phase 3: scalability and monetization
+Doel:
+Commercieel sterker product voor meerdere trainers/programma’s
+
+Bouwen:
+- Groepen/programma’s
+- Eigen oefentemplates
+- White-label basics
+- Billing/subscriptions
+- Export/reporting
+
+## 12. Open questions and assumptions
+
+### Open questions
+- Werkt een trainer meestal 1-op-1, in groepen, of beide?
+- Moeten studenten ook op feedback kunnen reageren in de app?
+- Moeten oefeningen concepten kunnen opslaan voordat ze worden ingediend?
+- Is e-mailnotificatie essentieel voor de eerste release of optioneel?
+- Welke stijl van voortgang is het meest waardevol: activiteit, subjectieve groei, of doelbeweging?
+- Is er behoefte aan meertaligheid vanaf de start?
+
+### Assumptions used in this outline
+- Assumptie: Nederlands is de primaire taal in MVP.
+- Assumptie: de eerste versie ondersteunt alleen trainer en student.
+- Assumptie: oefeningen zijn vooral tekstgebaseerd.
+- Assumptie: feedback is asynchroon en tekstgebaseerd.
+- Assumptie: trainer maakt studenten handmatig aan of nodigt ze uit.
+
+## 13. Final recommendation
+
+### Strategic recommendation
+Bouw geen breed leerplatform, maar een scherpe “guided practice companion” voor NLP-trajecten. Het onderscheid zit niet in technische complexiteit maar in gebruiksgemak, ritme en kwaliteit van reflectie.
+
+### Product recommendation
+De beste eerste versie is een compacte webapp waarin:
+- trainers studenten en opdrachten beheren
+- studenten opdrachten afronden en reflecteren
+- feedback en voortgang zichtbaar worden in één eenvoudige flow
+
+### Software recommendation
+Gebruik een full-stack webstack die snel te shippen is en later kan doorgroeien. Houd de domeinlogica schoon gescheiden zodat oefenbeheer, inzendingen en feedback later uitbreidbaar blijven.
+
+## A. Best MVP version
+
+Een single-product webapp met:
+- trainer login
+- student login
+- 10 vaste oefentemplates
+- oefening toewijzen
+- oefening invullen en insturen
+- trainerfeedback
+- eenvoudig voortgangsdashboard
+
+Waarom dit de beste MVP is:
+- hoogste kernwaarde per ontwikkeluur
+- snel te testen met echte trainers
+- lage operationele complexiteit
+- valideert zowel trainer- als studentgedrag
+
+## B. Best long-term version
+
+Een coach enablement platform met:
+- trajecten en programma’s
+- eigen oefenbuilder voor trainers
+- groepen en cohorts
+- branded portals per trainer
+- geavanceerde rapportage
+- reminders en automatisering
+- optionele AI-samenvatting of AI-assist voor trainers
+
+Waarom dit de beste lange termijn is:
+- hogere retentie
+- meer schaal voor trainingspraktijken
+- sterkere positionering als professioneel begeleidingsproduct
+
+## C. What to build first this week
+
+### Dag 1-2
+- Productstructuur en datamodel vastleggen
+- UI-scope vastleggen voor trainer en student
+- Auth- en rollenstructuur bepalen
+
+### Dag 3-4
+- Dashboards bouwen
+- Oefenbibliotheek seeden
+- Assignment -> submission flow implementeren
+
+### Dag 5
+- Feedbackflow afronden
+- Basis voortgangsoverzicht toevoegen
+- Klikdemo testen met 1 trainerflow en 1 studentflow
+
+### Concrete weekly outcome
+Aan het eind van de week moet er een klikbare, bruikbare MVP staan waarin een trainer een oefening kan toewijzen en een student deze kan afronden, waarna de trainer feedback kan geven.
