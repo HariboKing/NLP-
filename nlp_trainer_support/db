@@ -1,0 +1,834 @@
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import secrets
+import sqlite3
+from datetime import datetime, timedelta, timezone
+
+from .config import DB_PATH, DATA_DIR, SESSION_HOURS
+from .seed_data import (
+    DEMO_ASSIGNMENTS,
+    DEMO_ATTEMPTS,
+    DEMO_ORGANIZATION,
+    DEMO_USERS,
+    PRACTITIONER_PROGRAM,
+    SEED_EXERCISES,
+)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def utc_now_iso() -> str:
+    return utc_now().isoformat(timespec="seconds")
+
+
+def connect() -> sqlite3.Connection:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+def initialize_database(reset: bool = False) -> None:
+    if reset and DB_PATH.exists():
+        DB_PATH.unlink()
+
+    with connect() as connection:
+        create_schema(connection)
+        seed_database(connection)
+        apply_runtime_migrations(connection)
+
+
+def create_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS organizations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS themes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER NOT NULL UNIQUE,
+            brand_name TEXT NOT NULL,
+            logo_label TEXT NOT NULL,
+            logo_url TEXT NOT NULL DEFAULT '',
+            hero_url TEXT NOT NULL DEFAULT '',
+            primary_color TEXT NOT NULL,
+            secondary_color TEXT NOT NULL,
+            accent_color TEXT NOT NULL,
+            surface_color TEXT NOT NULL,
+            background_style TEXT NOT NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            is_platform_admin INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS memberships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            organization_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (user_id, organization_id, role),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS programs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER NULL,
+            title TEXT NOT NULL,
+            level TEXT NOT NULL,
+            description TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS modules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            program_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            sort_order INTEGER NOT NULL,
+            FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS topics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            sort_order INTEGER NOT NULL,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS concepts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            tags_json TEXT NOT NULL,
+            sort_order INTEGER NOT NULL,
+            FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS resources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            sort_order INTEGER NOT NULL,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS exercises (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER NULL,
+            module_id INTEGER NOT NULL,
+            topic_id INTEGER NULL,
+            concept_id INTEGER NULL,
+            title TEXT NOT NULL UNIQUE,
+            exercise_type TEXT NOT NULL,
+            mode_support TEXT NOT NULL,
+            difficulty TEXT NOT NULL,
+            instructions TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            content_json TEXT NOT NULL,
+            scoring_json TEXT NOT NULL,
+            max_score REAL NOT NULL,
+            requires_manual_review INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'published',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
+            FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE SET NULL,
+            FOREIGN KEY (concept_id) REFERENCES concepts(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER NOT NULL,
+            created_by_user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS assignment_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            exercise_id INTEGER NOT NULL,
+            sort_order INTEGER NOT NULL,
+            UNIQUE (assignment_id, exercise_id),
+            FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+            FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS assignment_targets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            target_user_id INTEGER NOT NULL,
+            UNIQUE (assignment_id, target_user_id),
+            FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+            FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NULL,
+            exercise_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            started_at TEXT NOT NULL,
+            submitted_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            auto_score REAL NULL,
+            manual_score REAL NULL,
+            max_score REAL NOT NULL,
+            feedback TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+            FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS responses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            attempt_id INTEGER NOT NULL UNIQUE,
+            response_json TEXT NOT NULL,
+            FOREIGN KEY (attempt_id) REFERENCES attempts(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS module_quiz_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            module_id INTEGER NOT NULL,
+            queue_json TEXT NOT NULL,
+            current_position INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            updated_at TEXT NOT NULL,
+            UNIQUE (user_id, module_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            attempt_id INTEGER NOT NULL UNIQUE,
+            reviewer_user_id INTEGER NOT NULL,
+            score_override REAL NULL,
+            feedback TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL,
+            FOREIGN KEY (attempt_id) REFERENCES attempts(id) ON DELETE CASCADE,
+            FOREIGN KEY (reviewer_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            csrf_token TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        """
+    )
+    ensure_column(
+        connection,
+        "themes",
+        "background_image_opacity",
+        "REAL NOT NULL DEFAULT 0.18",
+    )
+
+
+def ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def apply_runtime_migrations(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        UPDATE modules
+        SET title = 'De geschiedenis van NLP'
+        WHERE title = '0. In het begin'
+        """
+    )
+    connection.execute(
+        """
+        UPDATE modules
+        SET title = 'Fundamenten van NLP'
+        WHERE title = '1. Fundamenten van NLP'
+        """
+    )
+    connection.execute(
+        """
+        UPDATE themes
+        SET background_image_opacity = COALESCE(background_image_opacity, 0.18)
+        """
+    )
+    sync_reference_curriculum(connection)
+    connection.commit()
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        120_000,
+    )
+    return f"{salt}${digest.hex()}"
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    salt, known_digest = password_hash.split("$", 1)
+    computed = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        120_000,
+    ).hex()
+    return hmac.compare_digest(computed, known_digest)
+
+
+def create_session(connection: sqlite3.Connection, user_id: int) -> tuple[str, str]:
+    token = secrets.token_urlsafe(32)
+    csrf_token = secrets.token_urlsafe(24)
+    expires_at = (utc_now() + timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
+    connection.execute(
+        "INSERT INTO sessions (token, user_id, csrf_token, expires_at) VALUES (?, ?, ?, ?)",
+        (token, user_id, csrf_token, expires_at),
+    )
+    connection.commit()
+    return token, csrf_token
+
+
+def get_session(connection: sqlite3.Connection, token: str | None) -> sqlite3.Row | None:
+    if not token:
+        return None
+
+    session = connection.execute(
+        """
+        SELECT sessions.token, sessions.user_id, sessions.csrf_token, sessions.expires_at,
+               users.email, users.first_name, users.last_name, users.is_platform_admin
+        FROM sessions
+        JOIN users ON users.id = sessions.user_id
+        WHERE sessions.token = ?
+        """,
+        (token,),
+    ).fetchone()
+    if not session:
+        return None
+
+    if datetime.fromisoformat(session["expires_at"]) <= utc_now():
+        destroy_session(connection, token)
+        return None
+
+    return session
+
+
+def destroy_session(connection: sqlite3.Connection, token: str | None) -> None:
+    if not token:
+        return
+    connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    connection.commit()
+
+
+def get_memberships(connection: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+    return connection.execute(
+        """
+        SELECT memberships.*, organizations.name AS organization_name, organizations.slug AS organization_slug
+        FROM memberships
+        JOIN organizations ON organizations.id = memberships.organization_id
+        WHERE memberships.user_id = ?
+        ORDER BY organizations.name, memberships.role
+        """,
+        (user_id,),
+    ).fetchall()
+
+
+def effective_score(attempt: sqlite3.Row) -> float | None:
+    if attempt["manual_score"] is not None:
+        return float(attempt["manual_score"])
+    if attempt["auto_score"] is not None:
+        return float(attempt["auto_score"])
+    return None
+
+
+def sync_reference_curriculum(connection: sqlite3.Connection) -> None:
+    created_at = utc_now_iso()
+    program_row = connection.execute(
+        "SELECT id FROM programs WHERE title = ?",
+        (PRACTITIONER_PROGRAM["title"],),
+    ).fetchone()
+    if program_row:
+        program_id = program_row["id"]
+        connection.execute(
+            """
+            UPDATE programs
+            SET level = ?, description = ?
+            WHERE id = ?
+            """,
+            (
+                PRACTITIONER_PROGRAM["level"],
+                PRACTITIONER_PROGRAM["description"],
+                program_id,
+            ),
+        )
+    else:
+        cursor = connection.execute(
+            """
+            INSERT INTO programs (organization_id, title, level, description, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                None,
+                PRACTITIONER_PROGRAM["title"],
+                PRACTITIONER_PROGRAM["level"],
+                PRACTITIONER_PROGRAM["description"],
+                created_at,
+            ),
+        )
+        program_id = cursor.lastrowid
+
+    module_ids: dict[str, int] = {}
+    topic_ids: dict[tuple[str, str], int] = {}
+    concept_ids: dict[tuple[str, str, str], int] = {}
+
+    for module_index, module in enumerate(PRACTITIONER_PROGRAM["modules"], start=1):
+        existing_module = connection.execute(
+            "SELECT id FROM modules WHERE program_id = ? AND title = ?",
+            (program_id, module["title"]),
+        ).fetchone()
+        if existing_module:
+            module_id = existing_module["id"]
+            connection.execute(
+                "UPDATE modules SET summary = ?, sort_order = ? WHERE id = ?",
+                (module["summary"], module_index, module_id),
+            )
+        else:
+            cursor = connection.execute(
+                "INSERT INTO modules (program_id, title, summary, sort_order) VALUES (?, ?, ?, ?)",
+                (program_id, module["title"], module["summary"], module_index),
+            )
+            module_id = cursor.lastrowid
+        module_ids[module["title"]] = module_id
+
+        connection.execute("DELETE FROM resources WHERE module_id = ?", (module_id,))
+        connection.execute("DELETE FROM topics WHERE module_id = ?", (module_id,))
+
+        for resource in module.get("resources", []):
+            connection.execute(
+                """
+                INSERT INTO resources (module_id, title, resource_type, content, sort_order)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    module_id,
+                    resource["title"],
+                    resource["resource_type"],
+                    resource["content"],
+                    resource["sort_order"],
+                ),
+            )
+
+        for topic_index, topic in enumerate(module["topics"], start=1):
+            cursor = connection.execute(
+                "INSERT INTO topics (module_id, title, summary, sort_order) VALUES (?, ?, ?, ?)",
+                (module_id, topic["title"], topic["summary"], topic_index),
+            )
+            topic_id = cursor.lastrowid
+            topic_ids[(module["title"], topic["title"])] = topic_id
+
+            for concept_index, concept in enumerate(topic["concepts"], start=1):
+                cursor = connection.execute(
+                    """
+                    INSERT INTO concepts (topic_id, title, summary, tags_json, sort_order)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        topic_id,
+                        concept["title"],
+                        concept["summary"],
+                        json.dumps(concept["tags"]),
+                        concept_index,
+                    ),
+                )
+                concept_ids[(module["title"], topic["title"], concept["title"])] = cursor.lastrowid
+
+    for exercise in SEED_EXERCISES:
+        module_id = module_ids[exercise["module_title"]]
+        topic_id = topic_ids.get((exercise["module_title"], exercise["topic_title"]))
+        concept_id = concept_ids.get(
+            (exercise["module_title"], exercise["topic_title"], exercise["concept_title"])
+        )
+        payload = (
+            None,
+            module_id,
+            topic_id,
+            concept_id,
+            exercise["exercise_type"],
+            exercise["mode_support"],
+            exercise["difficulty"],
+            exercise["instructions"],
+            exercise["prompt"],
+            json.dumps(exercise["content"]),
+            json.dumps(exercise["scoring"]),
+            float(exercise["max_score"]),
+            1 if exercise["requires_manual_review"] else 0,
+            created_at,
+            exercise["title"],
+        )
+        existing_exercise = connection.execute(
+            "SELECT id FROM exercises WHERE title = ?",
+            (exercise["title"],),
+        ).fetchone()
+        if existing_exercise:
+            connection.execute(
+                """
+                UPDATE exercises
+                SET organization_id = ?, module_id = ?, topic_id = ?, concept_id = ?,
+                    exercise_type = ?, mode_support = ?, difficulty = ?, instructions = ?,
+                    prompt = ?, content_json = ?, scoring_json = ?, max_score = ?,
+                    requires_manual_review = ?, status = 'published', created_at = ?
+                WHERE title = ?
+                """,
+                payload,
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO exercises (
+                    organization_id, module_id, topic_id, concept_id, title, exercise_type,
+                    mode_support, difficulty, instructions, prompt, content_json, scoring_json,
+                    max_score, requires_manual_review, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)
+                """,
+                (
+                    None,
+                    module_id,
+                    topic_id,
+                    concept_id,
+                    exercise["title"],
+                    exercise["exercise_type"],
+                    exercise["mode_support"],
+                    exercise["difficulty"],
+                    exercise["instructions"],
+                    exercise["prompt"],
+                    json.dumps(exercise["content"]),
+                    json.dumps(exercise["scoring"]),
+                    float(exercise["max_score"]),
+                    1 if exercise["requires_manual_review"] else 0,
+                    created_at,
+                ),
+            )
+
+    seed_titles = [exercise["title"] for exercise in SEED_EXERCISES]
+    placeholders = ", ".join("?" for _ in seed_titles)
+    connection.execute(
+        f"""
+        UPDATE exercises
+        SET status = 'archived'
+        WHERE organization_id IS NULL
+          AND title NOT IN ({placeholders})
+        """,
+        tuple(seed_titles),
+    )
+
+
+def seed_database(connection: sqlite3.Connection) -> None:
+    existing_users = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
+    if existing_users:
+        return
+
+    from .scoring import score_submission
+
+    created_at = utc_now_iso()
+
+    connection.execute(
+        "INSERT INTO organizations (name, slug, description, created_at) VALUES (?, ?, ?, ?)",
+        (
+            DEMO_ORGANIZATION["name"],
+            DEMO_ORGANIZATION["slug"],
+            DEMO_ORGANIZATION["description"],
+            created_at,
+        ),
+    )
+    organization_id = connection.execute(
+        "SELECT id FROM organizations WHERE slug = ?",
+        (DEMO_ORGANIZATION["slug"],),
+    ).fetchone()["id"]
+
+    theme = DEMO_ORGANIZATION["theme"]
+    connection.execute(
+        """
+        INSERT INTO themes (
+            organization_id, brand_name, logo_label, logo_url, hero_url,
+            primary_color, secondary_color, accent_color, surface_color, background_style,
+            background_image_opacity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            organization_id,
+            theme["brand_name"],
+            theme["logo_label"],
+            theme["logo_url"],
+            theme["hero_url"],
+            theme["primary_color"],
+            theme["secondary_color"],
+            theme["accent_color"],
+            theme["surface_color"],
+            theme["background_style"],
+            theme.get("background_image_opacity", 0.18),
+        ),
+    )
+
+    user_ids: dict[str, int] = {}
+    for user in DEMO_USERS:
+        connection.execute(
+            """
+            INSERT INTO users (email, password_hash, first_name, last_name, is_platform_admin, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user["email"],
+                hash_password(user["password"]),
+                user["first_name"],
+                user["last_name"],
+                1 if user["is_platform_admin"] else 0,
+                created_at,
+            ),
+        )
+        user_ids[user["email"]] = connection.execute(
+            "SELECT id FROM users WHERE email = ?",
+            (user["email"],),
+        ).fetchone()["id"]
+        for role in user["memberships"]:
+            connection.execute(
+                "INSERT INTO memberships (user_id, organization_id, role, created_at) VALUES (?, ?, ?, ?)",
+                (user_ids[user["email"]], organization_id, role, created_at),
+            )
+
+    connection.execute(
+        """
+        INSERT INTO programs (organization_id, title, level, description, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            None,
+            PRACTITIONER_PROGRAM["title"],
+            PRACTITIONER_PROGRAM["level"],
+            PRACTITIONER_PROGRAM["description"],
+            created_at,
+        ),
+    )
+    program_id = connection.execute(
+        "SELECT id FROM programs WHERE title = ?",
+        (PRACTITIONER_PROGRAM["title"],),
+    ).fetchone()["id"]
+
+    module_ids: dict[str, int] = {}
+    topic_ids: dict[tuple[str, str], int] = {}
+    concept_ids: dict[tuple[str, str, str], int] = {}
+
+    for module_index, module in enumerate(PRACTITIONER_PROGRAM["modules"], start=1):
+        connection.execute(
+            "INSERT INTO modules (program_id, title, summary, sort_order) VALUES (?, ?, ?, ?)",
+            (program_id, module["title"], module["summary"], module_index),
+        )
+        module_id = connection.execute(
+            "SELECT id FROM modules WHERE program_id = ? AND title = ?",
+            (program_id, module["title"]),
+        ).fetchone()["id"]
+        module_ids[module["title"]] = module_id
+
+        for resource in module.get("resources", []):
+            connection.execute(
+                """
+                INSERT INTO resources (module_id, title, resource_type, content, sort_order)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    module_id,
+                    resource["title"],
+                    resource["resource_type"],
+                    resource["content"],
+                    resource["sort_order"],
+                ),
+            )
+
+        for topic_index, topic in enumerate(module["topics"], start=1):
+            connection.execute(
+                "INSERT INTO topics (module_id, title, summary, sort_order) VALUES (?, ?, ?, ?)",
+                (module_id, topic["title"], topic["summary"], topic_index),
+            )
+            topic_id = connection.execute(
+                "SELECT id FROM topics WHERE module_id = ? AND title = ?",
+                (module_id, topic["title"]),
+            ).fetchone()["id"]
+            topic_ids[(module["title"], topic["title"])] = topic_id
+
+            for concept_index, concept in enumerate(topic["concepts"], start=1):
+                connection.execute(
+                    """
+                    INSERT INTO concepts (topic_id, title, summary, tags_json, sort_order)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        topic_id,
+                        concept["title"],
+                        concept["summary"],
+                        json.dumps(concept["tags"]),
+                        concept_index,
+                    ),
+                )
+                concept_id = connection.execute(
+                    "SELECT id FROM concepts WHERE topic_id = ? AND title = ?",
+                    (topic_id, concept["title"]),
+                ).fetchone()["id"]
+                concept_ids[(module["title"], topic["title"], concept["title"])] = concept_id
+
+    exercise_ids: dict[str, int] = {}
+    for exercise in SEED_EXERCISES:
+        module_id = module_ids[exercise["module_title"]]
+        topic_id = topic_ids.get((exercise["module_title"], exercise["topic_title"]))
+        concept_id = concept_ids.get(
+            (exercise["module_title"], exercise["topic_title"], exercise["concept_title"])
+        )
+        connection.execute(
+            """
+            INSERT INTO exercises (
+                organization_id, module_id, topic_id, concept_id, title, exercise_type,
+                mode_support, difficulty, instructions, prompt, content_json, scoring_json,
+                max_score, requires_manual_review, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)
+            """,
+            (
+                None,
+                module_id,
+                topic_id,
+                concept_id,
+                exercise["title"],
+                exercise["exercise_type"],
+                exercise["mode_support"],
+                exercise["difficulty"],
+                exercise["instructions"],
+                exercise["prompt"],
+                json.dumps(exercise["content"]),
+                json.dumps(exercise["scoring"]),
+                float(exercise["max_score"]),
+                1 if exercise["requires_manual_review"] else 0,
+                created_at,
+            ),
+        )
+        exercise_ids[exercise["title"]] = connection.execute(
+            "SELECT id FROM exercises WHERE title = ?",
+            (exercise["title"],),
+        ).fetchone()["id"]
+
+    assignment_ids: dict[str, int] = {}
+    for assignment in DEMO_ASSIGNMENTS:
+        due_date = (utc_now() + timedelta(days=assignment["due_in_days"])).date().isoformat()
+        connection.execute(
+            """
+            INSERT INTO assignments (
+                organization_id, created_by_user_id, title, description, mode, due_date, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+            """,
+            (
+                organization_id,
+                user_ids[assignment["created_by_email"]],
+                assignment["title"],
+                assignment["description"],
+                assignment["mode"],
+                due_date,
+                created_at,
+            ),
+        )
+        assignment_id = connection.execute(
+            "SELECT id FROM assignments WHERE title = ?",
+            (assignment["title"],),
+        ).fetchone()["id"]
+        assignment_ids[assignment["title"]] = assignment_id
+
+        for item_index, exercise_title in enumerate(assignment["exercise_titles"], start=1):
+            connection.execute(
+                "INSERT INTO assignment_items (assignment_id, exercise_id, sort_order) VALUES (?, ?, ?)",
+                (assignment_id, exercise_ids[exercise_title], item_index),
+            )
+
+        for target_email in assignment["target_emails"]:
+            connection.execute(
+                "INSERT INTO assignment_targets (assignment_id, target_user_id) VALUES (?, ?)",
+                (assignment_id, user_ids[target_email]),
+            )
+
+    exercise_lookup = {
+        row["title"]: dict(row)
+        for row in connection.execute("SELECT * FROM exercises").fetchall()
+    }
+
+    for demo_attempt in DEMO_ATTEMPTS:
+        assignment_row = connection.execute(
+            "SELECT * FROM assignments WHERE title = ?",
+            (demo_attempt["assignment_title"],),
+        ).fetchone()
+        exercise_row = exercise_lookup[demo_attempt["exercise_title"]]
+        result = score_submission(
+            exercise=exercise_row,
+            response=demo_attempt["response"],
+            mode=assignment_row["mode"],
+        )
+        connection.execute(
+            """
+            INSERT INTO attempts (
+                assignment_id, exercise_id, user_id, started_at, submitted_at, status,
+                auto_score, manual_score, max_score, feedback
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                assignment_row["id"],
+                exercise_row["id"],
+                user_ids[demo_attempt["student_email"]],
+                created_at,
+                created_at,
+                "submitted" if result["requires_review"] else "scored",
+                result["auto_score"],
+                None,
+                result["max_score"],
+                result["feedback"],
+            ),
+        )
+        attempt_id = connection.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        connection.execute(
+            "INSERT INTO responses (attempt_id, response_json) VALUES (?, ?)",
+            (attempt_id, json.dumps(demo_attempt["response"])),
+        )
+
+    connection.commit()
