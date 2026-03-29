@@ -1,0 +1,64 @@
+# NLP Trainer Support Platform
+
+Een werkende MVP-webapp voor NLP-opleiders en studenten, gebouwd zonder externe Python-packages. De app draait op de standaard Python runtime via `py`, gebruikt SQLite voor opslag en server-side rendering voor de UI.
+
+## Wat zit erin
+
+- login met demo-accounts;
+- rollen voor `platform admin`, `organization admin`, `trainer` en `student`;
+- multi-tenant basis met tenant-thema en branding instellingen;
+- seeded `NLP Practitioner` curriculum;
+- module-overzichten met lesmateriaal, topics en concepten;
+- assignments met `learn` en `exam` mode;
+- oefentypes:
+  - multiple choice
+  - multi-select
+  - match pairs
+  - short answer
+  - text analysis
+  - reflection
+  - case review
+- automatische scoring waar mogelijk;
+- trainer review queue voor open antwoorden;
+- student-, trainer- en admin-dashboard;
+- interne smoke test.
+
+## Starten
+
+```powershell
+py app.py --reset-db
+```
+
+Daarna openen in de browser:
+
+```text
+http://127.0.0.1:8080
+```
+
+## Smoke test
+
+```powershell
+py app.py --smoke-test
+```
+
+## Demo accounts
+
+- Platform owner: `owner@platform.local` / `demo123`
+- Organization admin: `admin@neuroflow.local` / `demo123`
+- Trainer: `trainer@neuroflow.local` / `demo123`
+- Student: `student@neuroflow.local` / `demo123`
+- Student 2: `student2@neuroflow.local` / `demo123`
+
+## Bestanden
+
+- `app.py`: entrypoint, serverstart en smoke test
+- `nlp_trainer_support/db.py`: schema, auth, sessies en seedlogica
+- `nlp_trainer_support/scoring.py`: scoring per oefentype
+- `nlp_trainer_support/seed_data.py`: curriculum, demo-users, oefeningen en assignments
+- `nlp_trainer_support/web.py`: routing, dashboards, forms en reviewflow
+- `static/styles.css`: styling
+- `PRODUCT_OUTLINE.md`: product- en MVP-blauwdruk
+
+## Opmerking
+
+Deze versie is bewust dependency-light gehouden zodat de app in deze omgeving direct draait. Voor productie kun je later migreren naar een volwaardig framework, aparte auth-oplossing, object storage en uitgebreidere content authoring.
