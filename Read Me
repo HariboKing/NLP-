@@ -61,4 +61,9 @@ py app.py --smoke-test
 
 ## Opmerking
 
-Deze versie is bewust dependency-light gehouden zodat de app in deze omgeving direct draait. Voor productie kun je later migreren naar een volwaardig framework, aparte auth-oplossing, object storage en uitgebreidere content authoring.
+Deze versie is bewust dependency-light gehouden zodat de app in deze omgeving direct draait. Voor internet-hosting is er nu ook een productie-entrypoint via `serve.py`, plus `wsgi.py` en `passenger_wsgi.py`.
+
+Zie ook:
+
+- `DEPLOYMENT.md` voor hosting op een Python host, eigen server of Passenger-based hosting
+- `requirements.txt` voor de minimale productie-dependency
