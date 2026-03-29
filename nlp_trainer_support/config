@@ -1,0 +1,13 @@
+from pathlib import Path
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "data"
+STATIC_DIR = ROOT_DIR / "static"
+UPLOADS_DIR = STATIC_DIR / "uploads"
+DB_PATH = DATA_DIR / "nlp_trainer_support.db"
+
+APP_TITLE = "NLP Trainer Support Platform"
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8080
+SESSION_HOURS = 12
