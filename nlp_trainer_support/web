@@ -166,6 +166,12 @@ class WebApp:
         return response(start_response)
 
     def dispatch(self, request: Request) -> Response:
+        if request.path == "/health":
+            return Response("200 OK", b"ok", [("Content-Type", "text/plain; charset=utf-8")])
+
+        if request.path.startswith("/uploads/"):
+            return self.serve_upload(request.path)
+
         if request.path.startswith("/static/"):
             return self.serve_static(request.path)
 
@@ -330,7 +336,7 @@ class WebApp:
         filename = f"{asset_kind}-{organization_id}-{secrets.token_hex(8)}{safe_suffix}"
         target = UPLOADS_DIR / filename
         target.write_bytes(upload.data)
-        return f"/static/uploads/{filename}"
+        return f"/uploads/{filename}"
 
     def html(self, title: str, content: str, context: dict, status: str = "200 OK") -> Response:
         theme = context["theme"]
@@ -408,6 +414,16 @@ class WebApp:
         target = (STATIC_DIR / path.removeprefix("/static/")).resolve()
         if not str(target).startswith(str(STATIC_DIR.resolve())) or not target.exists():
             return Response("404 Not Found", b"Not found", [("Content-Type", "text/plain; charset=utf-8")])
+        mime_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        return Response("200 OK", target.read_bytes(), [("Content-Type", mime_type)])
+
+    def serve_upload(self, path: str) -> Response:
+        target = (UPLOADS_DIR / path.removeprefix("/uploads/")).resolve()
+        if not str(target).startswith(str(UPLOADS_DIR.resolve())) or not target.exists():
+            legacy_path = (STATIC_DIR / path.removeprefix("/uploads/")).resolve()
+            if not str(legacy_path).startswith(str(STATIC_DIR.resolve())) or not legacy_path.exists():
+                return Response("404 Not Found", b"Not found", [("Content-Type", "text/plain; charset=utf-8")])
+            target = legacy_path
         mime_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         return Response("200 OK", target.read_bytes(), [("Content-Type", mime_type)])
 
