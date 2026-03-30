@@ -49,6 +49,7 @@ DEMO_USERS = [
         "first_name": "Platform",
         "last_name": "Owner",
         "is_platform_admin": True,
+        "account_kind": "managed",
         "memberships": [],
     },
     {
@@ -57,6 +58,7 @@ DEMO_USERS = [
         "first_name": "Nina",
         "last_name": "Admin",
         "is_platform_admin": False,
+        "account_kind": "managed",
         "memberships": ["organization_admin"],
     },
     {
@@ -65,6 +67,7 @@ DEMO_USERS = [
         "first_name": "Timo",
         "last_name": "Trainer",
         "is_platform_admin": False,
+        "account_kind": "managed",
         "memberships": ["trainer"],
     },
     {
@@ -73,6 +76,8 @@ DEMO_USERS = [
         "first_name": "Sara",
         "last_name": "Student",
         "is_platform_admin": False,
+        "account_kind": "managed",
+        "managed_by_email": "admin@neuroflow.local",
         "memberships": ["student"],
     },
     {
@@ -81,6 +86,8 @@ DEMO_USERS = [
         "first_name": "Milan",
         "last_name": "Student",
         "is_platform_admin": False,
+        "account_kind": "managed",
+        "managed_by_email": "admin@neuroflow.local",
         "memberships": ["student"],
     },
 ]
