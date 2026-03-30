@@ -86,7 +86,7 @@ def run_smoke_test() -> None:
         ).fetchone()["id"]
     status, _headers, body = student.request("GET", f"/assignments/{assignment_id}")
     assert status.startswith("200"), status
-    assert "Assignment onderdelen" in body
+    assert "Verdiepingspaden ter referentie" in body
 
     print("Smoke test geslaagd.")
 
