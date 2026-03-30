@@ -5,6 +5,7 @@ import hmac
 import json
 import secrets
 import sqlite3
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from .config import DB_PATH, DATA_DIR, SESSION_HOURS
@@ -12,6 +13,7 @@ from .seed_data import (
     DEMO_ASSIGNMENTS,
     DEMO_ATTEMPTS,
     DEMO_ORGANIZATION,
+    DEMO_STUDENT_GROUPS,
     DEMO_USERS,
     PRACTITIONER_PROGRAM,
     SEED_EXERCISES,
@@ -43,6 +45,18 @@ def initialize_database(reset: bool = False) -> None:
         create_schema(connection)
         seed_database(connection)
         apply_runtime_migrations(connection)
+
+
+def validate_seed_exercises() -> None:
+    title_counts = Counter(exercise["title"] for exercise in SEED_EXERCISES)
+    duplicate_titles = sorted(title for title, count in title_counts.items() if count > 1)
+    if duplicate_titles:
+        preview = ", ".join(duplicate_titles[:5])
+        suffix = " ..." if len(duplicate_titles) > 5 else ""
+        raise ValueError(
+            f"Duplicate exercise titles detected in seed data ({len(duplicate_titles)}): "
+            f"{preview}{suffix}"
+        )
 
 
 def create_schema(connection: sqlite3.Connection) -> None:
@@ -178,6 +192,26 @@ def create_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS student_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            created_by_user_id INTEGER NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (organization_id, name),
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS student_group_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            UNIQUE (group_id, user_id),
+            FOREIGN KEY (group_id) REFERENCES student_groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS assignment_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             assignment_id INTEGER NOT NULL,
@@ -188,6 +222,16 @@ def create_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS assignment_reference_modules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            module_id INTEGER NOT NULL,
+            sort_order INTEGER NOT NULL,
+            UNIQUE (assignment_id, module_id),
+            FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS assignment_targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             assignment_id INTEGER NOT NULL,
@@ -195,6 +239,15 @@ def create_schema(connection: sqlite3.Connection) -> None:
             UNIQUE (assignment_id, target_user_id),
             FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
             FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS assignment_target_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            UNIQUE (assignment_id, group_id),
+            FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+            FOREIGN KEY (group_id) REFERENCES student_groups(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS attempts (
@@ -293,6 +346,7 @@ def apply_runtime_migrations(connection: sqlite3.Connection) -> None:
         """
     )
     sync_reference_curriculum(connection)
+    sync_demo_student_groups(connection)
     connection.commit()
 
 
@@ -570,6 +624,7 @@ def seed_database(connection: sqlite3.Connection) -> None:
 
     from .scoring import score_submission
 
+    validate_seed_exercises()
     created_at = utc_now_iso()
 
     connection.execute(
@@ -634,6 +689,26 @@ def seed_database(connection: sqlite3.Connection) -> None:
             connection.execute(
                 "INSERT INTO memberships (user_id, organization_id, role, created_at) VALUES (?, ?, ?, ?)",
                 (user_ids[user["email"]], organization_id, role, created_at),
+            )
+
+    for group in DEMO_STUDENT_GROUPS:
+        cursor = connection.execute(
+            """
+            INSERT INTO student_groups (organization_id, name, created_by_user_id, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                organization_id,
+                group["name"],
+                user_ids.get("trainer@neuroflow.local"),
+                created_at,
+            ),
+        )
+        group_id = cursor.lastrowid
+        for student_email in group["student_emails"]:
+            connection.execute(
+                "INSERT INTO student_group_members (group_id, user_id) VALUES (?, ?)",
+                (group_id, user_ids[student_email]),
             )
 
     connection.execute(
@@ -833,3 +908,48 @@ def seed_database(connection: sqlite3.Connection) -> None:
         )
 
     connection.commit()
+
+
+def sync_demo_student_groups(connection: sqlite3.Connection) -> None:
+    organization_row = connection.execute(
+        "SELECT id FROM organizations WHERE slug = ?",
+        (DEMO_ORGANIZATION["slug"],),
+    ).fetchone()
+    if not organization_row:
+        return
+
+    organization_id = organization_row["id"]
+    trainer_row = connection.execute(
+        "SELECT id FROM users WHERE email = ?",
+        ("trainer@neuroflow.local",),
+    ).fetchone()
+    trainer_id = trainer_row["id"] if trainer_row else None
+
+    for group in DEMO_STUDENT_GROUPS:
+        existing_group = connection.execute(
+            "SELECT id FROM student_groups WHERE organization_id = ? AND name = ?",
+            (organization_id, group["name"]),
+        ).fetchone()
+        if existing_group:
+            group_id = existing_group["id"]
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO student_groups (organization_id, name, created_by_user_id, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (organization_id, group["name"], trainer_id, utc_now_iso()),
+            )
+            group_id = cursor.lastrowid
+
+        connection.execute("DELETE FROM student_group_members WHERE group_id = ?", (group_id,))
+        for student_email in group["student_emails"]:
+            user_row = connection.execute(
+                "SELECT id FROM users WHERE email = ?",
+                (student_email,),
+            ).fetchone()
+            if user_row:
+                connection.execute(
+                    "INSERT OR IGNORE INTO student_group_members (group_id, user_id) VALUES (?, ?)",
+                    (group_id, user_row["id"]),
+                )
