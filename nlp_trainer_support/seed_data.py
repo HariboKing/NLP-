@@ -2,6 +2,19 @@ from __future__ import annotations
 
 from .module0_question_bank import build_module0_exercises
 from .module1_question_bank import MODULE1_TOPIC_BLUEPRINT, build_module1_exercises
+from .module2_question_bank import MODULE2_TOPIC_BLUEPRINT, build_module2_exercises
+from .module3_question_bank import MODULE3_TOPIC_BLUEPRINT, build_module3_exercises
+from .module4_question_bank import MODULE4_TOPIC_BLUEPRINT, build_module4_exercises
+from .module5_question_bank import MODULE5_TOPIC_BLUEPRINT, build_module5_exercises
+from .module6_question_bank import MODULE6_TOPIC_BLUEPRINT, build_module6_exercises
+from .module7_question_bank import MODULE7_TOPIC_BLUEPRINT, build_module7_exercises
+from .module8_question_bank import MODULE8_TOPIC_BLUEPRINT, build_module8_exercises
+from .module9_question_bank import MODULE9_TOPIC_BLUEPRINT, build_module9_exercises
+from .module10_question_bank import MODULE10_TOPIC_BLUEPRINT, build_module10_exercises
+from .module11_question_bank import MODULE11_TOPIC_BLUEPRINT, build_module11_exercises
+from .module12_question_bank import MODULE12_TOPIC_BLUEPRINT, build_module12_exercises
+from .module13_question_bank import MODULE13_TOPIC_BLUEPRINT, build_module13_exercises
+
 
 
 DEMO_ORGANIZATION = {
@@ -174,7 +187,7 @@ PRACTITIONER_PROGRAM = {
             "topics": MODULE1_TOPIC_BLUEPRINT,
         },
         {
-            "title": "2. Wereldmodellen van NLP",
+            "title": "Wereldmodellen van NLP",
             "summary": "Structuur van betekenisgeving en abstractieniveaus.",
             "resources": [
                 {
@@ -188,55 +201,10 @@ PRACTITIONER_PROGRAM = {
                     "sort_order": 1,
                 }
             ],
-            "topics": [
-                {
-                    "title": "G6-model / 4G-theorie",
-                    "summary": "Gebeurtenis, gewaarwording, gedachten, geloof, emotie en gedrag.",
-                    "concepts": [
-                        {
-                            "title": "Structuur",
-                            "summary": "De zes lagen van interpretatie en respons.",
-                            "tags": ["gebeurtenis", "gewaarwording", "gedachten", "geloof", "emotie", "gedrag"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Structureel differentiaal",
-                    "summary": "Objectniveau, benoeming, beschrijving en beoordeling.",
-                    "concepts": [
-                        {
-                            "title": "Niveaus",
-                            "summary": "Objectniveau, benoemingsniveau, beschrijvingsniveau en beoordelingsniveau.",
-                            "tags": ["objectniveau", "benoemingsniveau", "beschrijvingsniveau", "beoordelingsniveau", "magisch denken"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Algemene semantiek",
-                    "summary": "Taal, betekenis, abstractie en werkelijkheid.",
-                    "concepts": [
-                        {
-                            "title": "Kern",
-                            "summary": "Hoe taal de menselijke ervaring structureert.",
-                            "tags": ["taal", "betekenis", "abstractie", "werkelijkheid"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Filosofie en NLP",
-                    "summary": "Zelfkennis, interpretatie en denken.",
-                    "concepts": [
-                        {
-                            "title": "Kernbegrippen",
-                            "summary": "Zelfkennis, interpretatie en denken als fundament voor NLP.",
-                            "tags": ["zelfkennis", "interpretatie", "denken"],
-                        }
-                    ],
-                },
-            ],
+            "topics": MODULE2_TOPIC_BLUEPRINT,
         },
         {
-            "title": "3. De kunst van magische taalpatronen",
+            "title": "De kunst van magische taalpatronen",
             "summary": "Metamodel, taalverwerking en complexe equivalentie.",
             "resources": [
                 {
@@ -304,9 +272,10 @@ PRACTITIONER_PROGRAM = {
                     ],
                 },
             ],
+            "topics": MODULE3_TOPIC_BLUEPRINT,            
         },
         {
-            "title": "4. De verborgen wereld van metaforen",
+            "title": "De verborgen wereld van metaforen",
             "summary": "Indirecte communicatie en betekenis via metaforen.",
             "resources": [
                 {
@@ -316,27 +285,10 @@ PRACTITIONER_PROGRAM = {
                     "sort_order": 1,
                 }
             ],
-            "topics": [
-                {
-                    "title": "Metaforen",
-                    "summary": "Soorten, functie en toepassingswaarde.",
-                    "concepts": [
-                        {
-                            "title": "Soorten",
-                            "summary": "Homomorfisch, isomorfisch, cultureel en universeel.",
-                            "tags": ["homomorfisch", "isomorfisch", "cultureel", "universeel"],
-                        },
-                        {
-                            "title": "Functie",
-                            "summary": "Indirecte communicatie, verandering, betekenis en verbeelding.",
-                            "tags": ["indirecte communicatie", "verandering", "betekenis", "verbeelding"],
-                        },
-                    ],
-                }
-            ],
+            "topics": MODULE4_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "5. De transformatie van droom naar outcome",
+            "title": "De transformatie van droom naar outcome",
             "summary": "Doelen formuleren en ecologisch naar resultaat bewegen.",
             "resources": [
                 {
@@ -346,44 +298,10 @@ PRACTITIONER_PROGRAM = {
                     "sort_order": 1,
                 }
             ],
-            "topics": [
-                {
-                    "title": "Doelstellingenproces",
-                    "summary": "Ken je doel, neem actie, check resultaat en wees flexibel.",
-                    "concepts": [
-                        {
-                            "title": "Stappen",
-                            "summary": "Ken je doel, neem actie, check resultaat, wees flexibel en beloon jezelf.",
-                            "tags": ["ken je doel", "neem actie", "check resultaat", "wees flexibel", "beloon jezelf"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Outcome frame",
-                    "summary": "Vormvoorwaarden voor een goed doel.",
-                    "concepts": [
-                        {
-                            "title": "Vormvoorwaarden",
-                            "summary": "Positief formuleren, eigen controle, zintuiglijk specifiek, context en ecologie.",
-                            "tags": ["positief formuleren", "eigen controle", "zintuiglijk specifiek", "context", "ecologie"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Van droom naar resultaat",
-                    "summary": "Beslisvragen over richting, eindresultaat en haalbaarheid.",
-                    "concepts": [
-                        {
-                            "title": "Beslisvragen",
-                            "summary": "Richting, eindresultaat, haalbaarheid en keuze.",
-                            "tags": ["richting", "eindresultaat", "haalbaarheid", "keuze"],
-                        }
-                    ],
-                },
-            ],
+            "topics": MODULE5_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "6. De ontdekking van het zelf",
+            "title": "De ontdekking van het zelf",
             "summary": "Zelfonderzoek, identiteit en voorwaarden voor veiligheid en groei.",
             "resources": [
                 {
@@ -391,35 +309,12 @@ PRACTITIONER_PROGRAM = {
                     "resource_type": "worksheet",
                     "content": "Gebruik dit blad om persoonlijke veiligheid, zelfbeeld en ontwikkelruimte te onderzoeken.",
                     "sort_order": 1,
-                }
-            ],
-            "topics": [
-                {
-                    "title": "Zelfonderzoek",
-                    "summary": "Identiteit, zelfbeeld, zelfbewustzijn en persoonlijke veiligheid.",
-                    "concepts": [
-                        {
-                            "title": "Thema's",
-                            "summary": "Identiteit, zelfbeeld, zelfbewustzijn en veiligheid.",
-                            "tags": ["identiteit", "zelfbeeld", "zelfbewustzijn", "persoonlijke veiligheid"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Satir-condities",
-                    "summary": "Veiligheid en groei als randvoorwaarden.",
-                    "concepts": [
-                        {
-                            "title": "Veiligheid en groei",
-                            "summary": "Vertrouwen, veilige plek, vangnet en de wereld aankunnen.",
-                            "tags": ["vertrouwen", "veilige plek", "vangnet", "de wereld aankunnen"],
-                        }
-                    ],
                 },
             ],
+            "topics": MODULE6_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "7. De kracht van excellente communicatie",
+            "title": "De kracht van excellente communicatie",
             "summary": "Rapport, luisteren, afstemmen en feedbackvaardigheden.",
             "resources": [
                 {
@@ -427,57 +322,12 @@ PRACTITIONER_PROGRAM = {
                     "resource_type": "reader",
                     "content": "Oefen pacing, testing, leading en verschillende vormen van feedback.",
                     "sort_order": 1,
-                }
-            ],
-            "topics": [
-                {
-                    "title": "Excellente communicatie",
-                    "summary": "Doel, waarnemingsvermogen, flexibiliteit en communicatievaardigheden.",
-                    "concepts": [
-                        {
-                            "title": "Basis",
-                            "summary": "Doel, waarnemingsvermogen, flexibiliteit en vaardigheden.",
-                            "tags": ["doel", "waarnemingsvermogen", "flexibiliteit", "communicatievaardigheden"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Rapport",
-                    "summary": "Pacing, testen en leading.",
-                    "concepts": [
-                        {
-                            "title": "Proces",
-                            "summary": "Pacing, testen en leading.",
-                            "tags": ["pacing", "testen", "leading"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Luisteren en afstemmen",
-                    "summary": "Backtrack, vakjargon eliciteren en samenvatten.",
-                    "concepts": [
-                        {
-                            "title": "Vaardigheden",
-                            "summary": "Backtrack match, mismatch, vakjargon eliciteren en samenvatten.",
-                            "tags": ["backtrack match", "backtrack mismatch", "vakjargon eliciteren", "samenvatten"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Feedback",
-                    "summary": "Zelfonthulling, confrontatie, wederkerige feedback en ik-statements.",
-                    "concepts": [
-                        {
-                            "title": "Vormen",
-                            "summary": "Zelfonthulling, confrontatie, wederkerige feedback, ik-statements en gedrag versus persoon.",
-                            "tags": ["zelfonthulling", "confrontatie", "wederkerige feedback", "ik-statements", "gedrag vs persoon"],
-                        }
-                    ],
                 },
             ],
+            "topics": MODULE7_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "8. Over emoties en states",
+            "title": "Emoties en states",
             "summary": "State management, regulatie en emotionele schakeling.",
             "resources": [
                 {
@@ -487,22 +337,10 @@ PRACTITIONER_PROGRAM = {
                     "sort_order": 1,
                 }
             ],
-            "topics": [
-                {
-                    "title": "Emoties en toestanden",
-                    "summary": "State, emotionele schakeling, invloed en regulatie.",
-                    "concepts": [
-                        {
-                            "title": "Kern",
-                            "summary": "State, emotionele schakeling, invloed en regulatie.",
-                            "tags": ["state", "emotionele schakeling", "invloed", "regulatie"],
-                        }
-                    ],
-                }
-            ],
+            "topics": MODULE8_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "9. NLP technieken",
+            "title": "NLP technieken",
             "summary": "Perceptuele posities, submodaliteiten en eye accessing cues.",
             "resources": [
                 {
@@ -512,37 +350,10 @@ PRACTITIONER_PROGRAM = {
                     "sort_order": 1,
                 }
             ],
-            "topics": [
-                {
-                    "title": "Technieken",
-                    "summary": "Basis technieken voor perspectief, afstand en representaties.",
-                    "concepts": [
-                        {
-                            "title": "Perceptuele posities",
-                            "summary": "Eerste, tweede en derde positie.",
-                            "tags": ["eerste positie", "tweede positie", "derde positie"],
-                        },
-                        {
-                            "title": "Associatie en dissociatie",
-                            "summary": "In ervaring stappen of afstand nemen.",
-                            "tags": ["in ervaring stappen", "afstand nemen"],
-                        },
-                        {
-                            "title": "Eye Accessing Cues",
-                            "summary": "Oogbewegingen, visuele constructie, auditieve toegang en kinesthetische toegang.",
-                            "tags": ["oogbewegingen", "visuele constructie", "auditieve toegang", "kinesthetische toegang"],
-                        },
-                        {
-                            "title": "Submodaliteiten",
-                            "summary": "Contrastanalyse, drivers en bouwstenen van perceptie.",
-                            "tags": ["contrastanalyse", "drivers", "bouwstenen van perceptie"],
-                        },
-                    ],
-                }
-            ],
+            "topics": MODULE9_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "10. Strategieen ontcijferen",
+            "title": "Strategieën ontcijferen",
             "summary": "TOTE, eliciteren en installeren van strategieen.",
             "resources": [
                 {
@@ -552,32 +363,10 @@ PRACTITIONER_PROGRAM = {
                     "sort_order": 1,
                 }
             ],
-            "topics": [
-                {
-                    "title": "Strategieen",
-                    "summary": "Zintuiglijke sequenties, TOTE en gedragspatronen.",
-                    "concepts": [
-                        {
-                            "title": "Basis",
-                            "summary": "Zintuiglijke sequenties, TOTE-model en gedragsstrategie.",
-                            "tags": ["zintuiglijke sequenties", "TOTE-model", "gedragsstrategie"],
-                        },
-                        {
-                            "title": "Elicitatie",
-                            "summary": "Strategie-eliciteren, sequentie vinden en notatie.",
-                            "tags": ["strategie-eliciteren", "sequentie vinden", "notatie"],
-                        },
-                        {
-                            "title": "Toepassing",
-                            "summary": "Ontdekken, gebruiken, veranderen en installeren.",
-                            "tags": ["ontdekken", "gebruiken", "veranderen", "installeren"],
-                        },
-                    ],
-                }
-            ],
+            "topics": MODULE10_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "11. Ankeren",
+            "title": "Ankeren",
             "summary": "Conditionering, associatie en contextverandering.",
             "resources": [
                 {
@@ -587,27 +376,10 @@ PRACTITIONER_PROGRAM = {
                     "sort_order": 1,
                 }
             ],
-            "topics": [
-                {
-                    "title": "Conditionering en associatie",
-                    "summary": "Invloeden van Pavlov, Skinner en Watson.",
-                    "concepts": [
-                        {
-                            "title": "Invloeden",
-                            "summary": "Pavlov, Skinner en Watson als achtergrond bij ankeren.",
-                            "tags": ["Pavlov", "Skinner", "Watson"],
-                        },
-                        {
-                            "title": "Ankeren",
-                            "summary": "Stimulus-respons, conditionering, contextverandering en trigger.",
-                            "tags": ["stimulus-respons", "conditionering", "contextverandering", "trigger"],
-                        },
-                    ],
-                }
-            ],
+            "topics": MODULE11_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "12. Interventies",
+            "title": "Interventies",
             "summary": "Verandermodel van NLP en belangrijke interventies.",
             "resources": [
                 {
@@ -615,47 +387,12 @@ PRACTITIONER_PROGRAM = {
                     "resource_type": "reader",
                     "content": "Gebruik dit overzicht om interventies te kiezen op basis van doel, context en ecologie.",
                     "sort_order": 1,
-                }
-            ],
-            "topics": [
-                {
-                    "title": "Verandermodel van NLP",
-                    "summary": "Analyse, hulpbronnen, interventie en verandering.",
-                    "concepts": [
-                        {
-                            "title": "Fasen",
-                            "summary": "Analyse, hulpbronnen, interventie en verandering.",
-                            "tags": ["analyse", "hulpbronnen", "interventie", "verandering"],
-                        }
-                    ],
-                },
-                {
-                    "title": "Belangrijke interventies",
-                    "summary": "Bekende practitioner interventies en hun toepassingsgebied.",
-                    "concepts": [
-                        {
-                            "title": "Technieken",
-                            "summary": (
-                                "Transfer of a resource, neuro-logische niveaus, fast phobia cure, "
-                                "spatial reframe, swish pattern, collapsing anchors, herkaderen en tijdlijnen."
-                            ),
-                            "tags": [
-                                "transfer of a resource",
-                                "neuro-logische niveaus",
-                                "fast phobia cure",
-                                "spatial reframe",
-                                "swish pattern",
-                                "collapsing anchors",
-                                "herkaderen",
-                                "tijdlijnen",
-                            ],
-                        }
-                    ],
                 },
             ],
+            "topics": MODULE12_TOPIC_BLUEPRINT,         
         },
         {
-            "title": "13. NLP spiritualiteit",
+            "title": "NLP en spiritualiteit",
             "summary": "Spirituele principes en persoonlijk leiderschap.",
             "resources": [
                 {
@@ -663,96 +400,22 @@ PRACTITIONER_PROGRAM = {
                     "resource_type": "reader",
                     "content": "De taal van eigenwaarde, aannames vermijden en niets persoonlijk nemen.",
                     "sort_order": 1,
-                }
+                },
             ],
-            "topics": [
-                {
-                    "title": "Spiritueel NLP",
-                    "summary": "Woordgebruik, eigenwaarde en altijd je best doen.",
-                    "concepts": [
-                        {
-                            "title": "Principes",
-                            "summary": "Woordgebruik, eigenwaarde, niets persoonlijk nemen, aannames vermijden en altijd je best doen.",
-                            "tags": ["woordgebruik", "eigenwaarde", "niets persoonlijk nemen", "aannames vermijden", "altijd je best doen"],
-                        }
-                    ],
-                }
-            ],
+            "topics": MODULE13_TOPIC_BLUEPRINT,         
         },
-        {
-            "title": "14. Addendum",
-            "summary": "Verdiepingen, workshops en ARD.",
-            "resources": [
-                {
-                    "title": "Addendum reader",
-                    "resource_type": "reader",
-                    "content": "Extra verdieping voor studenten die door willen leren of excelleren.",
-                    "sort_order": 1,
-                }
-            ],
-            "topics": [
-                {
-                    "title": "Metamodel verdieping",
-                    "summary": "Aanvullende taalpatronen binnen het metamodel.",
-                    "concepts": [
-                        {
-                            "title": "Patronen",
-                            "summary": (
-                                "Halve vergelijkingen, onspecifiek werkwoord, onspecifiek zelfstandig naamwoord, "
-                                "lack of referential index, nominalisatie, modal operators, universal quantifiers, "
-                                "mind read en lost performative."
-                            ),
-                            "tags": [
-                                "halve vergelijkingen",
-                                "onspecifiek werkwoord",
-                                "onspecifiek zelfstandig naamwoord",
-                                "lack of referential index",
-                                "nominalisatie",
-                                "modal operators",
-                                "universal quantifiers",
-                                "mind read",
-                                "lost performative",
-                            ],
-                        }
-                    ],
-                },
-                {
-                    "title": "Outcome workshop",
-                    "summary": "Wensenlijst, prioriteren, outcome, specificeren en ecologie.",
-                    "concepts": [
-                        {
-                            "title": "Werkvormen",
-                            "summary": "Wensenlijst, prioriteren, outcome, specificeren, hulpbronnen en ecologie.",
-                            "tags": ["wensenlijst", "prioriteren", "outcome", "specificeren", "hulpbronnen", "ecologie"],
-                        }
-                    ],
-                },
-                {
-                    "title": "ARD",
-                    "summary": "Actie, reden en doel concreet maken.",
-                    "concepts": [
-                        {
-                            "title": "Actie - Reden - Doel",
-                            "summary": "Wat wil je, waarom wil je het, wat ga je doen, wanneer, hoe, met wie en waarmee.",
-                            "tags": ["wat wil je", "waarom wil je het", "wat ga je doen", "wanneer", "hoe", "met wie", "waarmee"],
-                        }
-                    ],
-                },
-            ],
-        },
-    ],
+    ]
 }
 
-
-SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
+SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + build_module2_exercises() + build_module3_exercises() + build_module4_exercises() + build_module5_exercises() + build_module6_exercises() + build_module7_exercises() + build_module8_exercises() + build_module9_exercises() + build_module10_exercises() + build_module11_exercises() + build_module12_exercises() + build_module13_exercises() + [
     {
         "title": "G6-model koppeloefening",
         "exercise_type": "match_pairs",
         "mode_support": "learn",
         "difficulty": "core",
-        "module_title": "2. Wereldmodellen van NLP",
-        "topic_title": "G6-model / 4G-theorie",
-        "concept_title": "Structuur",
+        "module_title": "Wereldmodellen van NLP",
+        "topic_title": "Het G6 model/de G4 theorie",
+        "concept_title": "De 4G theorie",
         "instructions": "Koppel elk element aan de juiste omschrijving.",
         "prompt": "Kun je de lagen van het G6-model herkennen?",
         "content": {
@@ -778,7 +441,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "text_analysis",
         "mode_support": "learn,exam",
         "difficulty": "core",
-        "module_title": "3. De kunst van magische taalpatronen",
+        "module_title": "De kunst van magische taalpatronen",
         "topic_title": "Het metamodel",
         "concept_title": "Patronen",
         "instructions": "Lees het fragment, kies het patroon en formuleer daarna een passende metamodel-vraag.",
@@ -811,7 +474,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "short_answer",
         "mode_support": "learn,exam",
         "difficulty": "core",
-        "module_title": "3. De kunst van magische taalpatronen",
+        "module_title": "De kunst van magische taalpatronen",
         "topic_title": "Het metamodel",
         "concept_title": "Functies",
         "instructions": "Schrijf een concrete vraag die meer specificatie oproept.",
@@ -833,7 +496,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "multi_select",
         "mode_support": "learn,exam",
         "difficulty": "core",
-        "module_title": "5. De transformatie van droom naar outcome",
+        "module_title": "De transformatie van droom naar outcome",
         "topic_title": "Outcome frame",
         "concept_title": "Vormvoorwaarden",
         "instructions": "Selecteer alle elementen die in een sterk outcome frame horen.",
@@ -857,7 +520,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "case_review",
         "mode_support": "learn,exam",
         "difficulty": "advanced",
-        "module_title": "7. De kracht van excellente communicatie",
+        "module_title": "De kracht van excellente communicatie",
         "topic_title": "Rapport",
         "concept_title": "Proces",
         "instructions": "Analyseer de case en beschrijf hoe jij pacing, testing en leading zou inzetten.",
@@ -887,7 +550,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "reflection",
         "mode_support": "learn",
         "difficulty": "core",
-        "module_title": "8. Over emoties en states",
+        "module_title": "Emoties en states",
         "topic_title": "Emoties en toestanden",
         "concept_title": "Kern",
         "instructions": "Reflecteer kort maar concreet op je eigen observaties.",
@@ -906,7 +569,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "multiple_choice",
         "mode_support": "learn,exam",
         "difficulty": "core",
-        "module_title": "9. NLP technieken",
+        "module_title": "NLP technieken",
         "topic_title": "Technieken",
         "concept_title": "Eye Accessing Cues",
         "instructions": "Kies het beste antwoord.",
@@ -930,7 +593,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "short_answer",
         "mode_support": "learn,exam",
         "difficulty": "core",
-        "module_title": "11. Ankeren",
+        "module_title": "Ankeren",
         "topic_title": "Conditionering en associatie",
         "concept_title": "Ankeren",
         "instructions": "Beschrijf het mechanisme van ankeren kort en praktisch.",
@@ -956,7 +619,7 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
         "exercise_type": "multiple_choice",
         "mode_support": "learn,exam",
         "difficulty": "advanced",
-        "module_title": "12. Interventies",
+        "module_title": "Interventies",
         "topic_title": "Belangrijke interventies",
         "concept_title": "Technieken",
         "instructions": "Kies de meest passende interventierichting op basis van de casus.",
@@ -972,36 +635,6 @@ SEED_EXERCISES = build_module0_exercises() + build_module1_exercises() + [
             "model_answer": "Swish pattern ligt voor de hand wanneer iemand een automatische representatie wil vervangen door een nieuw gewenst patroon.",
         },
         "scoring": {"correct_option": "a"},
-        "max_score": 100,
-        "requires_manual_review": False,
-    },
-    {
-        "title": "Metamodel verdieping - lost performative",
-        "exercise_type": "text_analysis",
-        "mode_support": "learn,exam",
-        "difficulty": "advanced",
-        "module_title": "14. Addendum",
-        "topic_title": "Metamodel verdieping",
-        "concept_title": "Patronen",
-        "instructions": "Herken het patroon en formuleer een verdiepende vraag.",
-        "prompt": "Analyseer de volgende uitspraak: 'Het is verkeerd om emoties op het werk te tonen.'",
-        "content": {
-            "text": "Het is verkeerd om emoties op het werk te tonen.",
-            "pattern_question": "Welk patroon herken je hier het sterkst?",
-            "options": [
-                {"value": "a", "label": "Lost performative"},
-                {"value": "b", "label": "Mind read"},
-                {"value": "c", "label": "Universal quantifier"},
-                {"value": "d", "label": "Complexe equivalentie"},
-            ],
-            "follow_up_prompt": "Welke vraag zou je stellen om de bron of norm expliciet te maken?",
-            "model_answer": "Lost performative. Een passende vraag is: 'Volgens wie is dat verkeerd?'",
-        },
-        "scoring": {
-            "correct_option": "a",
-            "follow_up_keywords": ["volgens wie", "wie", "verkeerd"],
-            "threshold": 0.4,
-        },
         "max_score": 100,
         "requires_manual_review": False,
     },
@@ -1038,21 +671,6 @@ DEMO_ASSIGNMENTS = [
         ],
     },
     {
-        "title": "Practitioner readiness check",
-        "description": "Exam-mode check met outcome frame, rapport en interventiekeuze.",
-        "mode": "exam",
-        "due_in_days": 21,
-        "created_by_email": "trainer@neuroflow.local",
-        "target_emails": ["student@neuroflow.local"],
-        "exercise_titles": [
-            "Outcome frame voorwaarden",
-            "Rapport case review",
-            "Anker uitleg in eigen woorden",
-            "Interventiekeuze bij beperkte hulpbronnen",
-            "Metamodel verdieping - lost performative",
-        ],
-    },
-    {
         "title": "Reflectie op state management",
         "description": "Persoonlijke reflectie ter voorbereiding op feedback van de trainer.",
         "mode": "learn",
@@ -1086,18 +704,6 @@ DEMO_ATTEMPTS = [
                 "Tijdens een lastig gesprek met een collega merkte ik dat mijn state "
                 "naar irritatie schoof. Daardoor werd mijn toon scherper en luisterde ik "
                 "minder goed. De volgende keer wil ik eerder ademen en mijn intentie checken."
-            )
-        },
-    },
-    {
-        "student_email": "student@neuroflow.local",
-        "assignment_title": "Practitioner readiness check",
-        "exercise_title": "Rapport case review",
-        "response": {
-            "answer": (
-                "Ik zou eerst vertragen, mijn stem en tempo iets afstemmen en meer open "
-                "vragen stellen. Daarna kijk ik of de ander weer meer contact maakt. Pas "
-                "als dat gebeurt zou ik voorzichtig naar het gevoelige onderwerp terugleiden."
             )
         },
     },
