@@ -9,7 +9,7 @@ from email.parser import BytesParser
 from email.policy import default as email_policy
 from html import escape
 from pathlib import Path
-from urllib.parse import parse_qs, quote, quote_plus
+from urllib.parse import parse_qs, quote, quote_plus, unquote
 
 from . import db
 from .config import APP_TITLE, STATIC_DIR, UPLOADS_DIR
@@ -740,16 +740,16 @@ class WebApp:
         return self.html("Geen toegang", f"<section class='panel'><h1>Geen toegang</h1><p>{h(message)}</p></section>", context, status="403 Forbidden")
 
     def serve_static(self, path: str) -> Response:
-        target = (STATIC_DIR / path.removeprefix("/static/")).resolve()
+        target = (STATIC_DIR / unquote(path.removeprefix("/static/"))).resolve()
         if not str(target).startswith(str(STATIC_DIR.resolve())) or not target.exists():
             return Response("404 Not Found", b"Not found", [("Content-Type", "text/plain; charset=utf-8")])
         mime_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         return Response("200 OK", target.read_bytes(), [("Content-Type", mime_type)])
 
     def serve_upload(self, path: str) -> Response:
-        target = (UPLOADS_DIR / path.removeprefix("/uploads/")).resolve()
+        target = (UPLOADS_DIR / unquote(path.removeprefix("/uploads/"))).resolve()
         if not str(target).startswith(str(UPLOADS_DIR.resolve())) or not target.exists():
-            legacy_path = (STATIC_DIR / path.removeprefix("/uploads/")).resolve()
+            legacy_path = (STATIC_DIR / unquote(path.removeprefix("/uploads/"))).resolve()
             if not str(legacy_path).startswith(str(STATIC_DIR.resolve())) or not legacy_path.exists():
                 return Response("404 Not Found", b"Not found", [("Content-Type", "text/plain; charset=utf-8")])
             target = legacy_path
