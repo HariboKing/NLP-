@@ -313,6 +313,18 @@ def create_schema(connection: sqlite3.Connection) -> None:
         "background_image_opacity",
         "REAL NOT NULL DEFAULT 0.18",
     )
+    ensure_column(
+        connection,
+        "users",
+        "account_kind",
+        "TEXT NOT NULL DEFAULT 'managed'",
+    )
+    ensure_column(
+        connection,
+        "users",
+        "managed_by_user_id",
+        "INTEGER NULL",
+    )
 
 
 def ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -345,6 +357,7 @@ def apply_runtime_migrations(connection: sqlite3.Connection) -> None:
         SET background_image_opacity = COALESCE(background_image_opacity, 0.18)
         """
     )
+    backfill_account_partitions(connection)
     sync_reference_curriculum(connection)
     sync_demo_student_groups(connection)
     connection.commit()
@@ -391,7 +404,8 @@ def get_session(connection: sqlite3.Connection, token: str | None) -> sqlite3.Ro
     session = connection.execute(
         """
         SELECT sessions.token, sessions.user_id, sessions.csrf_token, sessions.expires_at,
-               users.email, users.first_name, users.last_name, users.is_platform_admin
+               users.email, users.first_name, users.last_name, users.is_platform_admin,
+               users.account_kind, users.managed_by_user_id
         FROM sessions
         JOIN users ON users.id = sessions.user_id
         WHERE sessions.token = ?
@@ -426,6 +440,39 @@ def get_memberships(connection: sqlite3.Connection, user_id: int) -> list[sqlite
         """,
         (user_id,),
     ).fetchall()
+
+
+def create_user_account(
+    connection: sqlite3.Connection,
+    *,
+    email: str,
+    password: str,
+    first_name: str,
+    last_name: str,
+    account_kind: str,
+    managed_by_user_id: int | None = None,
+    is_platform_admin: bool = False,
+) -> int:
+    if account_kind not in {"managed", "public"}:
+        raise ValueError("account_kind must be 'managed' or 'public'.")
+    cursor = connection.execute(
+        """
+        INSERT INTO users (
+            email, password_hash, first_name, last_name, is_platform_admin, created_at, account_kind, managed_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            email.strip().lower(),
+            hash_password(password),
+            first_name.strip(),
+            last_name.strip(),
+            1 if is_platform_admin else 0,
+            utc_now_iso(),
+            account_kind,
+            managed_by_user_id,
+        ),
+    )
+    return cursor.lastrowid
 
 
 def effective_score(attempt: sqlite3.Row) -> float | None:
@@ -669,8 +716,10 @@ def seed_database(connection: sqlite3.Connection) -> None:
     for user in DEMO_USERS:
         connection.execute(
             """
-            INSERT INTO users (email, password_hash, first_name, last_name, is_platform_admin, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (
+                email, password_hash, first_name, last_name, is_platform_admin, created_at, account_kind, managed_by_user_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user["email"],
@@ -679,6 +728,8 @@ def seed_database(connection: sqlite3.Connection) -> None:
                 user["last_name"],
                 1 if user["is_platform_admin"] else 0,
                 created_at,
+                user.get("account_kind", "managed"),
+                user_ids.get(user.get("managed_by_email")),
             ),
         )
         user_ids[user["email"]] = connection.execute(
@@ -700,7 +751,7 @@ def seed_database(connection: sqlite3.Connection) -> None:
             (
                 organization_id,
                 group["name"],
-                user_ids.get("trainer@neuroflow.local"),
+                user_ids.get("admin@neuroflow.local"),
                 created_at,
             ),
         )
@@ -919,11 +970,11 @@ def sync_demo_student_groups(connection: sqlite3.Connection) -> None:
         return
 
     organization_id = organization_row["id"]
-    trainer_row = connection.execute(
+    admin_row = connection.execute(
         "SELECT id FROM users WHERE email = ?",
-        ("trainer@neuroflow.local",),
+        ("admin@neuroflow.local",),
     ).fetchone()
-    trainer_id = trainer_row["id"] if trainer_row else None
+    admin_id = admin_row["id"] if admin_row else None
 
     for group in DEMO_STUDENT_GROUPS:
         existing_group = connection.execute(
@@ -938,9 +989,14 @@ def sync_demo_student_groups(connection: sqlite3.Connection) -> None:
                 INSERT INTO student_groups (organization_id, name, created_by_user_id, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (organization_id, group["name"], trainer_id, utc_now_iso()),
+                (organization_id, group["name"], admin_id, utc_now_iso()),
             )
             group_id = cursor.lastrowid
+        if existing_group and admin_id is not None:
+            connection.execute(
+                "UPDATE student_groups SET created_by_user_id = ? WHERE id = ?",
+                (admin_id, group_id),
+            )
 
         connection.execute("DELETE FROM student_group_members WHERE group_id = ?", (group_id,))
         for student_email in group["student_emails"]:
@@ -953,3 +1009,40 @@ def sync_demo_student_groups(connection: sqlite3.Connection) -> None:
                     "INSERT OR IGNORE INTO student_group_members (group_id, user_id) VALUES (?, ?)",
                     (group_id, user_row["id"]),
                 )
+
+
+def backfill_account_partitions(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        UPDATE users
+        SET account_kind = 'managed'
+        WHERE id IN (SELECT DISTINCT user_id FROM memberships)
+        """
+    )
+    connection.execute(
+        """
+        UPDATE users
+        SET account_kind = 'public',
+            managed_by_user_id = NULL
+        WHERE is_platform_admin = 0
+          AND id NOT IN (SELECT DISTINCT user_id FROM memberships)
+        """
+    )
+
+    admin_row = connection.execute(
+        "SELECT id FROM users WHERE email = ?",
+        ("admin@neuroflow.local",),
+    ).fetchone()
+    if not admin_row:
+        return
+
+    admin_id = admin_row["id"]
+    connection.execute(
+        """
+        UPDATE users
+        SET account_kind = 'managed',
+            managed_by_user_id = ?
+        WHERE email IN ('student@neuroflow.local', 'student2@neuroflow.local')
+        """,
+        (admin_id,),
+    )
