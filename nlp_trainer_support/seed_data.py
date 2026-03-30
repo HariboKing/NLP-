@@ -86,6 +86,14 @@ DEMO_USERS = [
 ]
 
 
+DEMO_STUDENT_GROUPS = [
+    {
+        "name": "Practitioner groep A",
+        "student_emails": ["student@neuroflow.local", "student2@neuroflow.local"],
+    }
+]
+
+
 PRACTITIONER_PROGRAM = {
     "title": "NLP Practitioner",
     "level": "Practitioner",
