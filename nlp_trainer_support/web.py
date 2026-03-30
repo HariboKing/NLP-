@@ -6,6 +6,7 @@ import re
 import secrets
 import sqlite3
 from dataclasses import dataclass
+from datetime import timedelta
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from html import escape
@@ -514,6 +515,11 @@ class WebApp:
                     return self.handle_login(connection, request)
                 return self.html("Login", self.render_login(), context)
 
+            if request.path == "/register":
+                if request.method == "POST":
+                    return self.handle_register(connection, request)
+                return self.html("Account aanmaken", self.render_register(), context)
+
             if request.path == "/logout":
                 db.destroy_session(connection, request.cookies.get("session_token"))
                 return self.redirect("/login?notice=" + quote_plus("Je bent uitgelogd."))
@@ -687,6 +693,14 @@ class WebApp:
         nav = self.render_nav(context)
         background_art = self.compose_background_art(theme)
         brand_mark = self.render_brand_mark(theme)
+        if active:
+            brand_subtitle = h(active["organization_name"])
+        elif context["user"] and context["user"].get("is_platform_admin"):
+            brand_subtitle = "Platform beheer"
+        elif context["user"] and context["user"].get("account_kind") == "public":
+            brand_subtitle = "Publieke leeromgeving"
+        else:
+            brand_subtitle = "Product demo"
         shell_class = "shell has-background-image" if (theme.get("hero_url") or "").strip() else "shell"
         notice_html = ""
         if context.get("notice"):
@@ -716,7 +730,7 @@ class WebApp:
         {brand_mark}
         <div>
           <div class="brand-name">{h(theme['brand_name'])}</div>
-          <div class="brand-subtitle">{h(active['organization_name']) if active else 'Product demo'}</div>
+          <div class="brand-subtitle">{brand_subtitle}</div>
         </div>
       </div>
       {nav}
@@ -732,7 +746,12 @@ class WebApp:
 
     def render_nav(self, context: dict) -> str:
         if not context["user"]:
-            return "<nav class='topnav'><a class='nav-link' href='/login'>Login</a></nav>"
+            return (
+                "<nav class='topnav'>"
+                "<a class='nav-link' href='/login'>Login</a>"
+                "<a class='nav-link' href='/register'>Account aanmaken</a>"
+                "</nav>"
+            )
 
         links = ["<a class='nav-link' href='/dashboard'>Dashboard</a>"]
         active = context["active_membership"]
@@ -776,6 +795,39 @@ class WebApp:
         active = context["active_membership"]
         return bool(active and active["role"] in allowed)
 
+    def active_organization_id(self, context: dict) -> int | None:
+        active = context["active_membership"]
+        if not active:
+            return None
+        return int(active["organization_id"])
+
+    def belongs_to_active_organization(self, context: dict, row, field: str = "organization_id") -> bool:
+        active_org_id = self.active_organization_id(context)
+        return bool(row and active_org_id is not None and row[field] == active_org_id)
+
+    def user_belongs_to_active_organization(self, connection, context: dict, user_id: int) -> bool:
+        active_org_id = self.active_organization_id(context)
+        if active_org_id is None:
+            return False
+        membership = connection.execute(
+            """
+            SELECT 1
+            FROM memberships
+            WHERE user_id = ? AND organization_id = ?
+            """,
+            (user_id, active_org_id),
+        ).fetchone()
+        return bool(membership)
+
+    def can_access_attempt(self, connection, context: dict, attempt) -> bool:
+        if self.require_role(context, {"student"}):
+            return attempt["user_id"] == context["user"]["user_id"]
+        if self.require_role(context, {"trainer", "organization_admin"}):
+            if attempt["assignment_organization_id"] is not None:
+                return self.belongs_to_active_organization(context, attempt, "assignment_organization_id")
+            return self.user_belongs_to_active_organization(connection, context, attempt["user_id"])
+        return False
+
     def verify_csrf(self, request: Request, context: dict) -> bool:
         session = context.get("session")
         return bool(session and request.get("csrf_token") == session["csrf_token"])
@@ -793,6 +845,7 @@ class WebApp:
             </p>
             <div class="actions">
               <a class="button button-primary" href="/login">Open demo</a>
+              <a class="button button-secondary" href="/register">Account aanmaken</a>
             </div>
           </div>
           <div class="panel credential-card">
@@ -822,6 +875,35 @@ class WebApp:
               <input type="password" name="password" required>
             </label>
             <button class="button button-primary" type="submit">Login</button>
+            <p class="helper">Nog geen account? <a href="/register">Maak hier een publiek account aan</a>.</p>
+          </form>
+        </section>
+        """
+
+    def render_register(self) -> str:
+        return """
+        <section class="auth-shell">
+          <form class="panel auth-card" method="post" action="/register">
+            <h1>Publiek account aanmaken</h1>
+            <p>Met dit account krijg je toegang tot modellen en verdiepingspaden, maar niet tot trainer-opdrachten of organisatiegroepen.</p>
+            <label class="field">
+              <span>Voornaam</span>
+              <input type="text" name="first_name" required>
+            </label>
+            <label class="field">
+              <span>Achternaam</span>
+              <input type="text" name="last_name" required>
+            </label>
+            <label class="field">
+              <span>E-mail</span>
+              <input type="email" name="email" required>
+            </label>
+            <label class="field">
+              <span>Wachtwoord</span>
+              <input type="password" name="password" minlength="6" required>
+            </label>
+            <button class="button button-primary" type="submit">Account aanmaken</button>
+            <p class="helper">Heb je al een account? <a href="/login">Ga naar login</a>.</p>
           </form>
         </section>
         """
@@ -844,6 +926,48 @@ class WebApp:
 
         token, _csrf = db.create_session(connection, user["id"])
         response = self.redirect("/dashboard")
+        response.headers.append(("Set-Cookie", f"session_token={token}; Path=/; HttpOnly; SameSite=Lax"))
+        return response
+
+    def handle_register(self, connection, request: Request) -> Response:
+        first_name = request.get("first_name").strip()
+        last_name = request.get("last_name").strip()
+        email = request.get("email").strip().lower()
+        password = request.get("password")
+        if not first_name or not last_name or not email or len(password) < 6:
+            context = {
+                "user": None,
+                "session": None,
+                "memberships": [],
+                "active_membership": None,
+                "theme": self.default_theme(),
+                "notice": "Vul alle velden in en gebruik een wachtwoord van minimaal 6 tekens.",
+            }
+            return self.html("Account aanmaken", self.render_register(), context, status="400 Bad Request")
+
+        try:
+            user_id = db.create_user_account(
+                connection,
+                email=email,
+                password=password,
+                first_name=first_name,
+                last_name=last_name,
+                account_kind="public",
+            )
+            connection.commit()
+        except sqlite3.IntegrityError:
+            context = {
+                "user": None,
+                "session": None,
+                "memberships": [],
+                "active_membership": None,
+                "theme": self.default_theme(),
+                "notice": "Er bestaat al een account met dit e-mailadres.",
+            }
+            return self.html("Account aanmaken", self.render_register(), context, status="409 Conflict")
+
+        token, _csrf = db.create_session(connection, user_id)
+        response = self.redirect("/dashboard?notice=" + quote_plus("Je publieke account is aangemaakt."))
         response.headers.append(("Set-Cookie", f"session_token={token}; Path=/; HttpOnly; SameSite=Lax"))
         return response
 
@@ -1050,14 +1174,14 @@ class WebApp:
             return self.html("Platform dashboard", "".join(body), context)
 
         if not active:
-            return self.forbidden(context, "Geen actieve organisatie gevonden.")
+            return self.public_student_dashboard(connection, context)
 
         if active["role"] == "student":
             return self.student_dashboard(connection, context)
         if active["role"] == "trainer":
-            return self.trainer_dashboard(connection, context)
+            return self.trainer_dashboard(connection, request, context)
         if active["role"] == "organization_admin":
-            return self.organization_admin_dashboard(connection, context)
+            return self.organization_admin_dashboard(connection, request, context)
         return self.forbidden(context)
 
     def student_dashboard(self, connection, context: dict) -> Response:
@@ -1155,6 +1279,44 @@ class WebApp:
         ]
         return self.html("Student dashboard", "".join(content), context)
 
+    def public_student_dashboard(self, connection, context: dict) -> Response:
+        user_id = context["user"]["user_id"]
+        modules = connection.execute(
+            """
+            SELECT modules.id, modules.title,
+                   COUNT(DISTINCT exercises.id) AS total_exercises,
+                   COUNT(DISTINCT attempts.exercise_id) AS attempted_exercises,
+                   ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+            FROM modules
+            LEFT JOIN exercises ON exercises.module_id = modules.id AND exercises.status = 'published'
+            LEFT JOIN attempts ON attempts.exercise_id = exercises.id AND attempts.user_id = ?
+            GROUP BY modules.id
+            ORDER BY modules.sort_order
+            """,
+            (user_id,),
+        ).fetchall()
+
+        model_rows = [[f"<a href='/models/{model['slug']}'>{h(model['title'])}</a>"] for model in MODEL_PAGES]
+        module_rows = [
+            [
+                f"<a href='/modules/{module['id']}'>{h(module['title'])}</a>",
+                h(f"{module['attempted_exercises']}/{module['total_exercises']}"),
+                format_score(module["avg_score"]),
+            ]
+            for module in modules
+        ]
+        content = [
+            f"<section class='hero compact'><div><span class='eyebrow'>Publieke leeromgeving</span><h1>Welkom, {h(context['user']['first_name'])}</h1><p>Je gebruikt een publiek account. Je hebt toegang tot modellen en verdiepingspaden, maar niet tot organisatie-opdrachten van trainers.</p></div></section>",
+            "<section class='grid two-up dashboard-split'>"
+            + "<article class='panel'><h2>Modellen overzicht</h2>"
+            + self.render_table(["Model"], model_rows)
+            + "</article>"
+            + "<article class='panel'><h2>Verdiepingspaden</h2>"
+            + self.render_table(["Leerpad", "Geoefend", "Gemiddelde score"], module_rows)
+            + "</article></section>",
+        ]
+        return self.html("Publieke leeromgeving", "".join(content), context)
+
     def model_image_url(self, image_stem: str) -> tuple[str | None, str]:
         image_dir = STATIC_DIR / MODEL_IMAGE_DIR_NAME
         for suffix in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
@@ -1214,8 +1376,13 @@ class WebApp:
         ]
         return self.html(model["title"], "".join(content), context)
 
-    def trainer_dashboard(self, connection, context: dict) -> Response:
+    def trainer_dashboard(self, connection, request: Request, context: dict) -> Response:
         active = context["active_membership"]
+        selected_group_raw = request.get("group")
+        try:
+            selected_group_id = int(selected_group_raw) if selected_group_raw else None
+        except ValueError:
+            selected_group_id = None
         assignments = connection.execute(
             """
             SELECT assignments.*,
@@ -1242,20 +1409,66 @@ class WebApp:
             """,
             (active["organization_id"],),
         ).fetchall()
-        students = connection.execute(
+        groups = connection.execute(
             """
-            SELECT users.id, users.first_name, users.last_name,
+            SELECT student_groups.id, student_groups.name,
+                   COUNT(DISTINCT student_group_members.user_id) AS member_count,
+                   COUNT(DISTINCT attempts.id) AS attempt_count,
+                   ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+            FROM student_groups
+            LEFT JOIN student_group_members ON student_group_members.group_id = student_groups.id
+            LEFT JOIN attempts ON attempts.user_id = student_group_members.user_id
+            WHERE student_groups.organization_id = ?
+            GROUP BY student_groups.id
+            ORDER BY student_groups.name
+            """,
+            (active["organization_id"],),
+        ).fetchall()
+        recent_cutoff = (db.utc_now() - timedelta(days=183)).isoformat(timespec="seconds")
+        recent_students = connection.execute(
+            """
+            SELECT users.id, users.first_name, users.last_name, users.created_at,
                    COUNT(DISTINCT attempts.id) AS attempt_count,
                    ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
             FROM memberships
             JOIN users ON users.id = memberships.user_id
             LEFT JOIN attempts ON attempts.user_id = users.id
-            WHERE memberships.organization_id = ? AND memberships.role = 'student'
+            WHERE memberships.organization_id = ?
+              AND memberships.role = 'student'
+              AND users.created_at >= ?
             GROUP BY users.id
-            ORDER BY users.first_name, users.last_name
+            ORDER BY users.created_at DESC, users.first_name, users.last_name
             """,
-            (active["organization_id"],),
+            (active["organization_id"], recent_cutoff),
         ).fetchall()
+
+        grouped_students = []
+        selected_group_name = None
+        if selected_group_id is not None:
+            selected_group = connection.execute(
+                """
+                SELECT id, name
+                FROM student_groups
+                WHERE id = ? AND organization_id = ?
+                """,
+                (selected_group_id, active["organization_id"]),
+            ).fetchone()
+            if selected_group:
+                selected_group_name = selected_group["name"]
+                grouped_students = connection.execute(
+                    """
+                    SELECT users.id, users.first_name, users.last_name,
+                           COUNT(DISTINCT attempts.id) AS attempt_count,
+                           ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+                    FROM student_group_members
+                    JOIN users ON users.id = student_group_members.user_id
+                    LEFT JOIN attempts ON attempts.user_id = users.id
+                    WHERE student_group_members.group_id = ?
+                    GROUP BY users.id
+                    ORDER BY users.first_name, users.last_name
+                    """,
+                    (selected_group_id,),
+                ).fetchall()
 
         assignment_rows = [
             [
@@ -1275,13 +1488,30 @@ class WebApp:
             ]
             for row in pending_reviews
         ]
-        student_rows = [
+        group_rows = [
+            [
+                f"<a href='/dashboard?group={row['id']}'>{h(row['name'])}</a>",
+                h(row["member_count"]),
+                format_score(row["avg_score"]),
+            ]
+            for row in groups
+        ]
+        grouped_student_rows = [
             [
                 f"<a href='/students/{row['id']}'>{h(row['first_name'])} {h(row['last_name'])}</a>",
                 h(row["attempt_count"]),
                 format_score(row["avg_score"]),
             ]
-            for row in students
+            for row in grouped_students
+        ]
+        recent_student_rows = [
+            [
+                f"<a href='/students/{row['id']}'>{h(row['first_name'])} {h(row['last_name'])}</a>",
+                h(row["created_at"].split('T')[0]),
+                h(row["attempt_count"]),
+                format_score(row["avg_score"]),
+            ]
+            for row in recent_students
         ]
 
         content = [
@@ -1290,7 +1520,7 @@ class WebApp:
                 [
                     ("Opdrachten", str(len(assignments))),
                     ("Pending reviews", str(len(pending_reviews))),
-                    ("Studenten", str(len(students))),
+                    ("Groepen", str(len(groups))),
                 ]
             ),
             "<section class='grid two-up'>"
@@ -1300,14 +1530,96 @@ class WebApp:
             + "<article class='panel'><h2>Wacht op review</h2>"
             + self.render_table(["Oefening", "Student", "Ingediend"], review_rows)
             + "</article></section>",
-            "<section class='panel'><h2>Student voortgang</h2>"
-            + self.render_table(["Student", "Pogingen", "Gemiddelde"], student_rows)
-            + "</section>",
+            "<section class='grid two-up'>"
+            + "<article class='panel'><h2>Student voortgang per groep</h2>"
+            + self.render_table(["Groep", "Studenten", "Gemiddelde"], group_rows)
+            + (
+                (
+                    f"<div class='panel inset'><div class='actions'><a class='button button-secondary small' href='/dashboard'>Groepsfilter wissen</a></div><h3>{h(selected_group_name)}</h3>"
+                    + self.render_table(["Student", "Pogingen", "Gemiddelde"], grouped_student_rows)
+                    + "</div>"
+                )
+                if selected_group_name
+                else "<p class='helper'>Kies een groep om de studentvoortgang verder uit te kristalliseren.</p>"
+            )
+            + "</article>"
+            + "<article class='panel inset'><h2>Nieuwe accounts afgelopen 6 maanden</h2>"
+            + self.render_table(["Student", "Aangemaakt", "Pogingen", "Gemiddelde"], recent_student_rows)
+            + "</article></section>",
         ]
         return self.html("Trainer dashboard", "".join(content), context)
 
-    def organization_admin_dashboard(self, connection, context: dict) -> Response:
+    def organization_admin_dashboard(self, connection, request: Request, context: dict) -> Response:
         active = context["active_membership"]
+        current_user_id = context["user"]["user_id"]
+
+        if request.method == "POST":
+            if not self.verify_csrf(request, context):
+                return self.forbidden(context, "Ongeldige CSRF token.")
+            action = request.get("action")
+            if action == "create_managed_student":
+                first_name = request.get("first_name").strip()
+                last_name = request.get("last_name").strip()
+                email = request.get("email").strip().lower()
+                password = request.get("password")
+                if not first_name or not last_name or not email or len(password) < 6:
+                    return self.redirect("/dashboard?notice=" + quote_plus("Vul alle accountvelden correct in."))
+                try:
+                    user_id = db.create_user_account(
+                        connection,
+                        email=email,
+                        password=password,
+                        first_name=first_name,
+                        last_name=last_name,
+                        account_kind="managed",
+                        managed_by_user_id=current_user_id,
+                    )
+                    connection.execute(
+                        "INSERT INTO memberships (user_id, organization_id, role, created_at) VALUES (?, ?, ?, ?)",
+                        (user_id, active["organization_id"], "student", db.utc_now_iso()),
+                    )
+                    connection.commit()
+                except sqlite3.IntegrityError:
+                    return self.redirect("/dashboard?notice=" + quote_plus("Dit e-mailadres bestaat al."))
+                return self.redirect("/dashboard?notice=" + quote_plus("Studentaccount aangemaakt."))
+
+            if action == "create_group":
+                name = request.get("group_name").strip()
+                member_ids = [int(value) for value in request.getlist("member_user_ids") if value]
+                if not name:
+                    return self.redirect("/dashboard?notice=" + quote_plus("Geef de groep een naam."))
+                try:
+                    cursor = connection.execute(
+                        """
+                        INSERT INTO student_groups (organization_id, name, created_by_user_id, created_at)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (active["organization_id"], name, current_user_id, db.utc_now_iso()),
+                    )
+                    group_id = cursor.lastrowid
+                    managed_students = connection.execute(
+                        """
+                        SELECT users.id
+                        FROM memberships
+                        JOIN users ON users.id = memberships.user_id
+                        WHERE memberships.organization_id = ?
+                          AND memberships.role = 'student'
+                          AND users.managed_by_user_id = ?
+                        """,
+                        (active["organization_id"], current_user_id),
+                    ).fetchall()
+                    allowed_ids = {row["id"] for row in managed_students}
+                    for member_id in member_ids:
+                        if member_id in allowed_ids:
+                            connection.execute(
+                                "INSERT INTO student_group_members (group_id, user_id) VALUES (?, ?)",
+                                (group_id, member_id),
+                            )
+                    connection.commit()
+                except sqlite3.IntegrityError:
+                    return self.redirect("/dashboard?notice=" + quote_plus("Deze groep bestaat al."))
+                return self.redirect("/dashboard?notice=" + quote_plus("Groep aangemaakt."))
+
         memberships = connection.execute(
             """
             SELECT users.id, users.first_name, users.last_name, users.email, memberships.role
@@ -1318,19 +1630,91 @@ class WebApp:
             """,
             (active["organization_id"],),
         ).fetchall()
+        managed_students = connection.execute(
+            """
+            SELECT users.id, users.first_name, users.last_name, users.email, users.created_at
+            FROM memberships
+            JOIN users ON users.id = memberships.user_id
+            WHERE memberships.organization_id = ?
+              AND memberships.role = 'student'
+              AND users.managed_by_user_id = ?
+            ORDER BY users.created_at DESC, users.first_name, users.last_name
+            """,
+            (active["organization_id"], current_user_id),
+        ).fetchall()
+        managed_groups = connection.execute(
+            """
+            SELECT student_groups.id, student_groups.name,
+                   COUNT(student_group_members.user_id) AS member_count
+            FROM student_groups
+            LEFT JOIN student_group_members ON student_group_members.group_id = student_groups.id
+            WHERE student_groups.organization_id = ?
+              AND student_groups.created_by_user_id = ?
+            GROUP BY student_groups.id
+            ORDER BY student_groups.name
+            """,
+            (active["organization_id"], current_user_id),
+        ).fetchall()
         assignment_count = connection.execute(
             "SELECT COUNT(*) AS count FROM assignments WHERE organization_id = ?",
             (active["organization_id"],),
         ).fetchone()["count"]
+        managed_student_options = "".join(
+            f"<label class='checkbox-row'><input type='checkbox' name='member_user_ids' value='{student['id']}'><span>{h(student['first_name'])} {h(student['last_name'])}<small>{h(student['email'])}</small></span></label>"
+            for student in managed_students
+        )
         body = [
-            "<section class='hero compact'><div><span class='eyebrow'>Organization admin</span><h1>Tenant beheer</h1><p>Controleer gebruikers, opdrachten en branding voor jouw opleidersomgeving.</p></div><div class='actions'><a class='button button-primary' href='/settings/theme'>Branding aanpassen</a></div></section>",
+            "<section class='hero compact'><div><span class='eyebrow'>Organization admin</span><h1>Tenant beheer</h1><p>Beheer alleen organisatieaccounts, maak beheerde studenten aan en bundel die in groepen. Publieke accounts blijven volledig buiten dit overzicht.</p></div><div class='actions'><a class='button button-primary' href='/settings/theme'>Branding aanpassen</a></div></section>",
             self.metrics_row(
                 [
                     ("Gebruikers", str(len(memberships))),
                     ("Opdrachten", str(assignment_count)),
-                    ("Rollen", str(len({row['role'] for row in memberships}))),
+                    ("Mijn studenten", str(len(managed_students))),
+                    ("Mijn groepen", str(len(managed_groups))),
                 ]
             ),
+            "<section class='grid two-up'>"
+            + f"""
+            <article class='panel form-panel'>
+              <h2>Beheerd studentaccount aanmaken</h2>
+              <form method='post' action='/dashboard'>
+                <input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>
+                <input type='hidden' name='action' value='create_managed_student'>
+                <label class='field'><span>Voornaam</span><input type='text' name='first_name' required></label>
+                <label class='field'><span>Achternaam</span><input type='text' name='last_name' required></label>
+                <label class='field'><span>E-mail</span><input type='email' name='email' required></label>
+                <label class='field'><span>Tijdelijk wachtwoord</span><input type='text' name='password' minlength='6' required></label>
+                <button class='button button-primary' type='submit'>Student aanmaken</button>
+              </form>
+            </article>
+            <article class='panel form-panel'>
+              <h2>Groep aanmaken</h2>
+              <form method='post' action='/dashboard'>
+                <input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>
+                <input type='hidden' name='action' value='create_group'>
+                <label class='field'><span>Groepsnaam</span><input type='text' name='group_name' required></label>
+                <article class='panel inset'><h3>Kies studenten uit jouw beheerde accounts</h3>{managed_student_options or "<p class='helper'>Maak eerst een of meer beheerde studentaccounts aan.</p>"}</article>
+                <button class='button button-primary' type='submit'>Groep opslaan</button>
+              </form>
+            </article>
+            """
+            + "</section>",
+            "<section class='grid two-up'>"
+            + "<article class='panel'><h2>Mijn beheerde studenten</h2>"
+            + self.render_table(
+                ["Naam", "E-mail", "Aangemaakt"],
+                [
+                    [h(f"{row['first_name']} {row['last_name']}"), h(row["email"]), h(row["created_at"].split("T")[0])]
+                    for row in managed_students
+                ],
+            )
+            + "</article>"
+            + "<article class='panel'><h2>Mijn groepen</h2>"
+            + self.render_table(
+                ["Groep", "Studenten"],
+                [[h(row["name"]), h(row["member_count"])] for row in managed_groups],
+            )
+            + "</article></section>",
             "<section class='panel'><h2>Gebruikers in deze organisatie</h2>"
             + self.render_table(
                 ["Naam", "E-mail", "Rol"],
@@ -2162,6 +2546,10 @@ class WebApp:
                 + "</article></section>"
             )
             return self.html(h(assignment["title"]), body, context)
+        if not self.require_role(context, {"trainer", "organization_admin"}):
+            return self.forbidden(context)
+        if not self.belongs_to_active_organization(context, assignment):
+            return self.forbidden(context)
 
         targets = connection.execute(
             """
@@ -2235,6 +2623,13 @@ class WebApp:
                     ).fetchone()
                     if not target:
                         return self.forbidden(context)
+                else:
+                    if not self.require_role(context, {"trainer", "organization_admin"}):
+                        return self.forbidden(context)
+                    if not self.belongs_to_active_organization(context, assignment):
+                        return self.forbidden(context)
+        elif not self.require_role(context, {"student", "trainer", "organization_admin"}):
+            return self.forbidden(context)
 
         if request.method == "POST":
             if not self.require_role(context, {"student"}):
@@ -2405,7 +2800,8 @@ class WebApp:
             """
             SELECT attempts.*, exercises.title AS exercise_title, exercises.exercise_type,
                    exercises.content_json, assignments.title AS assignment_title,
-                   assignments.mode AS assignment_mode, users.first_name, users.last_name
+                   assignments.mode AS assignment_mode, assignments.organization_id AS assignment_organization_id,
+                   users.first_name, users.last_name
             FROM attempts
             JOIN exercises ON exercises.id = attempts.exercise_id
             JOIN users ON users.id = attempts.user_id
@@ -2416,7 +2812,7 @@ class WebApp:
         ).fetchone()
         if not attempt:
             return self.not_found(context)
-        if self.require_role(context, {"student"}) and attempt["user_id"] != context["user"]["user_id"]:
+        if not self.can_access_attempt(connection, context, attempt):
             return self.forbidden(context)
 
         response_row = connection.execute(
@@ -2507,15 +2903,20 @@ class WebApp:
         ).fetchone()
         if not assignment:
             return self.not_found(context)
+        if not self.belongs_to_active_organization(context, assignment):
+            return self.forbidden(context)
 
         student = connection.execute(
             """
             SELECT users.id, users.first_name, users.last_name, users.email
             FROM users
             JOIN assignment_targets ON assignment_targets.target_user_id = users.id
+            JOIN memberships ON memberships.user_id = users.id
             WHERE users.id = ? AND assignment_targets.assignment_id = ?
+              AND memberships.organization_id = ?
+              AND memberships.role = 'student'
             """,
-            (student_id, assignment_id),
+            (student_id, assignment_id, assignment["organization_id"]),
         ).fetchone()
         if not student:
             return self.not_found(context)
@@ -2524,6 +2925,21 @@ class WebApp:
             if not self.verify_csrf(request, context):
                 return self.forbidden(context, "Ongeldige CSRF token.")
             attempt_id = int(request.get("attempt_id"))
+            attempt_row = connection.execute(
+                """
+                SELECT attempts.id
+                FROM attempts
+                JOIN assignment_items
+                  ON assignment_items.assignment_id = attempts.assignment_id
+                 AND assignment_items.exercise_id = attempts.exercise_id
+                WHERE attempts.id = ?
+                  AND attempts.assignment_id = ?
+                  AND attempts.user_id = ?
+                """,
+                (attempt_id, assignment_id, student_id),
+            ).fetchone()
+            if not attempt_row:
+                return self.forbidden(context)
             score_override = request.get("score_override").strip()
             feedback = request.get("feedback").strip() or "Feedback toegevoegd."
             numeric_score = float(score_override) if score_override else None
@@ -2862,16 +3278,20 @@ class WebApp:
         attempt = connection.execute(
             """
             SELECT attempts.*, exercises.title AS exercise_title, exercises.exercise_type,
-                   exercises.content_json, users.first_name, users.last_name
+                   exercises.content_json, assignments.organization_id AS assignment_organization_id,
+                   users.first_name, users.last_name
             FROM attempts
             JOIN exercises ON exercises.id = attempts.exercise_id
             JOIN users ON users.id = attempts.user_id
+            LEFT JOIN assignments ON assignments.id = attempts.assignment_id
             WHERE attempts.id = ?
             """,
             (attempt_id,),
         ).fetchone()
         if not attempt:
             return self.not_found(context)
+        if not self.can_access_attempt(connection, context, attempt):
+            return self.forbidden(context)
         if request.method == "POST":
             if not self.verify_csrf(request, context):
                 return self.forbidden(context, "Ongeldige CSRF token.")
@@ -3050,9 +3470,17 @@ class WebApp:
     def student_detail(self, connection, request: Request, context: dict, student_id: int) -> Response:
         if not self.require_role(context, {"trainer", "organization_admin"}):
             return self.forbidden(context)
+        active = context["active_membership"]
         student = connection.execute(
-            "SELECT * FROM users WHERE id = ?",
-            (student_id,),
+            """
+            SELECT users.*
+            FROM users
+            JOIN memberships ON memberships.user_id = users.id
+            WHERE users.id = ?
+              AND memberships.organization_id = ?
+              AND memberships.role = 'student'
+            """,
+            (student_id, active["organization_id"]),
         ).fetchone()
         if not student:
             return self.not_found(context)
@@ -3063,10 +3491,22 @@ class WebApp:
             JOIN exercises ON exercises.id = attempts.exercise_id
             LEFT JOIN assignments ON assignments.id = attempts.assignment_id
             WHERE attempts.user_id = ?
+              AND (
+                    assignments.organization_id = ?
+                    OR (
+                        attempts.assignment_id IS NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM memberships
+                            WHERE memberships.user_id = attempts.user_id
+                              AND memberships.organization_id = ?
+                        )
+                    )
+                  )
             ORDER BY attempts.submitted_at DESC
             LIMIT 20
             """,
-            (student_id,),
+            (student_id, active["organization_id"], active["organization_id"]),
         ).fetchall()
         assignments = connection.execute(
             """
@@ -3077,10 +3517,11 @@ class WebApp:
             LEFT JOIN attempts ON attempts.assignment_id = assignments.id
                                AND attempts.user_id = assignment_targets.target_user_id
             WHERE assignment_targets.target_user_id = ?
+              AND assignments.organization_id = ?
             GROUP BY assignments.id
             ORDER BY assignments.due_date
             """,
-            (student_id,),
+            (student_id, active["organization_id"]),
         ).fetchall()
         body = [
             f"<section class='hero compact'><div><span class='eyebrow'>Student detail</span><h1>{h(student['first_name'])} {h(student['last_name'])}</h1><p>{h(student['email'])}</p></div></section>",
