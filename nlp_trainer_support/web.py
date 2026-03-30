@@ -9,7 +9,7 @@ from email.parser import BytesParser
 from email.policy import default as email_policy
 from html import escape
 from pathlib import Path
-from urllib.parse import parse_qs, quote_plus
+from urllib.parse import parse_qs, quote, quote_plus
 
 from . import db
 from .config import APP_TITLE, STATIC_DIR, UPLOADS_DIR
@@ -45,6 +45,331 @@ def role_priority(role: str) -> int:
         "student": 2,
     }
     return order.get(role, 99)
+
+
+MODEL_IMAGE_DIR_NAME = "Model afbeeldingen"
+MODEL_PAGES = [
+    {
+        "slug": "nlp-model",
+        "title": "NLP-model",
+        "image_stem": "nlp-model_afbeelding",
+        "intro": "Het NLP-model laat zien hoe mensen via waarneming, taal, betekenis en gedrag hun subjectieve ervaring opbouwen.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Dit model helpt studenten zien dat zij niet rechtstreeks op de werkelijkheid reageren, maar op hun eigen interne representatie ervan.",
+                    "Daarmee wordt zichtbaar hoe zintuiglijke input, selectie, betekenisgeving en reactie elkaar opvolgen en elkaar beinvloeden.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let vooral op het verschil tussen wat iemand waarneemt, wat iemand daarvan maakt en hoe dat doorwerkt in gevoel en gedrag.",
+                    "Dat onderscheid is de basis voor bijna alle andere NLP-modellen die later volgen.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik dit model om gesprekken te analyseren: wat was de prikkel, welke betekenis werd eraan gegeven en welke reactie volgde daaruit?",
+                    "Juist die stap van betekenisgeving geeft ingangen voor nieuwe keuzes en ander gedrag.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "metamodel",
+        "title": "Metamodel",
+        "image_stem": "metamodel_afbeelding",
+        "intro": "Het metamodel helpt taal preciezer te maken door deleties, generalisaties en vervormingen zichtbaar en bevraagbaar te maken.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model laat zien hoe mensen in taal informatie weglaten, overdrijven of betekenis inkleuren zonder dat dit direct opvalt.",
+                    "Door die patronen te herkennen ontstaat meer helderheid over iemands wereldmodel.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let op woorden als altijd, nooit, iedereen, niemand, maar ook op vage verwijzingen, aannames en onduidelijke oorzaken.",
+                    "Het metamodel is vooral sterk wanneer je het koppelt aan concrete, verhelderende vragen.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik het metamodel in coaching, feedback en analyse van geschreven tekst om de structuur achter uitspraken bloot te leggen.",
+                    "Het doel is niet om iemand vast te zetten, maar om meer keuzevrijheid en precisie te creeren.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "g6-model",
+        "title": "G6-model",
+        "image_stem": "g6-model_afbeelding",
+        "intro": "Het G6-model maakt inzichtelijk hoe een gebeurtenis via betekenis en overtuiging doorwerkt in emotie en gedrag.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Dit model helpt studenten onderscheiden tussen de gebeurtenis zelf en de interpretatie die erop volgt.",
+                    "Daardoor wordt duidelijk waarom twee mensen totaal anders kunnen reageren op dezelfde situatie.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Besteed aandacht aan de schakel tussen gebeurtenis, gedachte of geloof, gevoel en gedrag.",
+                    "Juist in die tussenlaag zitten vaak de overtuigingen die verandering mogelijk of juist moeilijk maken.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik het model om cases stap voor stap uit te pluizen en te onderzoeken waar een patroon vastloopt.",
+                    "Het is een sterk model om studenten van reactief naar reflectief kijken te brengen.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "structureel-differentiaal",
+        "title": "Structureel differentiaal",
+        "image_stem": "structureel-differentiaal_afbeelding",
+        "intro": "Het structureel differentiaal visualiseert hoe ervaringen worden gefilterd, gelabeld en geabstraheerd voordat ze taal worden.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model maakt zichtbaar dat woorden nooit de volledige werkelijkheid bevatten, maar altijd een beperkte representatie zijn.",
+                    "Daarmee ondersteunt het de bekende gedachte dat de kaart niet hetzelfde is als het gebied.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let op de verschillende abstractieniveaus en op wat onderweg verloren gaat wanneer ervaring wordt samengevat in taal.",
+                    "Dit helpt studenten nauwkeuriger te kijken naar interpretatie en generalisatie.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik het model wanneer iemand te snel conclusies trekt of wanneer een begrip te abstract wordt ingezet.",
+                    "Het helpt om terug te bewegen van labels naar concreet waarneembare informatie.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "tote-model",
+        "title": "TOTE-model",
+        "image_stem": "tote-model_afbeelding",
+        "intro": "Het TOTE-model beschrijft gedrag als een lus van testen, uitvoeren, opnieuw testen en afronden.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model laat zien dat doelgericht gedrag niet lineair hoeft te zijn, maar vaak een terugkerend proces van afstemmen en bijstellen is.",
+                    "Daarmee is het een krachtig hulpmiddel om strategieen zichtbaar te maken.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let op het verschil tussen een interne test, een actie, een nieuwe vergelijking en het moment waarop iemand stopt of doorgaat.",
+                    "Juist die logica maakt gedrag overdraagbaar en analyseerbaar.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik TOTE om leer- en successtrategien te ontleden: hoe weet iemand dat het werkt, wat doet diegene daarna en wanneer is het genoeg?",
+                    "Dat maakt het model waardevol voor modelleren, coaching en performance-analyse.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "neuro-logische-niveaus",
+        "title": "Neuro-logische niveaus",
+        "image_stem": "neuro-logische-niveaus_afbeelding",
+        "intro": "De neuro-logische niveaus helpen onderscheiden op welk niveau een vraagstuk speelt: omgeving, gedrag, vaardigheden, overtuigingen, identiteit of missie.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model geeft structuur aan veranderwerk door te laten zien dat niet elk probleem op hetzelfde niveau opgelost wordt.",
+                    "Daardoor wordt duidelijk waarom een gedragsvraag soms eigenlijk een identiteits- of overtuigingsvraag is.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let goed op de taal van elk niveau en op de manier waarop de niveaus elkaar beinvloeden.",
+                    "Voor studenten is vooral het onderscheid tussen gedrag, vaardigheden en overtuigingen vaak erg verhelderend.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik dit model om gesprekken te structureren en om te bepalen waar een interventie het meeste effect heeft.",
+                    "Het is ook bruikbaar als reflectiekader voor coaching, persoonlijke ontwikkeling en feedback.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "nine-major-beliefs",
+        "title": "Nine Major Beliefs",
+        "image_stem": "nine-major-beliefs_afbeelding",
+        "intro": "De Nine Major Beliefs vormen een set overtuigingen die binnen NLP richting geven aan waarnemen, communiceren en veranderen.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Deze overtuigingen bieden geen harde wetten, maar een denkkader waarmee studenten anders leren kijken naar gedrag, keuzevrijheid en communicatie.",
+                    "Ze vormen daarmee een basislaag onder veel NLP-toepassingen.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Kijk niet alleen naar de formuleringen zelf, maar vooral naar de praktische gevolgen wanneer iemand vanuit zo'n overtuiging handelt.",
+                    "De waarde zit in toepassen, niet in het opdreunen van losse zinnen.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik deze beliefs als reflectievragen: welke aanname helpt hier vooruit en welke belemmert juist?",
+                    "Zo worden ze een werkbaar kader voor houding, gesprek en interventiekeuze.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "chunken",
+        "title": "Chunken",
+        "image_stem": "chunken_afbeelding",
+        "intro": "Chunken gaat over schakelen tussen abstractieniveaus: groter, kleiner of op hetzelfde niveau van informatie kijken.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model laat zien hoe betekenis verandert wanneer je uitzoomt naar grotere gehelen of juist inzoomt op details.",
+                    "Daardoor wordt taal flexibeler en worden gesprekken makkelijker te sturen.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let op vragen die omhoog chunken, omlaag chunken of lateraal vergelijken.",
+                    "Voor studenten wordt dan zichtbaar hoe abstractie invloed heeft op begrip, motivatie en besluitvorming.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik chunken om vaagheid te concretiseren, details weer betekenis te geven of mensen uit een vastgelopen perspectief te halen.",
+                    "Het model werkt goed in sales, coaching, onderwijs en structurering van uitleg.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "zintuigen",
+        "title": "Zintuigen",
+        "image_stem": "zintuigen_afbeelding",
+        "intro": "Het model van de zintuigen richt de aandacht op de representatiesystemen waarmee mensen ervaring intern coderen en extern beschrijven.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model helpt zichtbaar maken of iemand vooral in beelden, geluiden, gevoel, woorden of interne dialoog codeert.",
+                    "Dat geeft aanknopingspunten voor afstemming en didactiek.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let op predikaten, taalgebruik en beschrijvingen die wijzen op visueel, auditief of kinesthetisch verwerken.",
+                    "Voor studenten wordt dan tastbaar hoe waarneming samenhangt met taal.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik dit model om communicatie beter af te stemmen en om leerstof op meerdere manieren aan te bieden.",
+                    "Het helpt ook om ervaring specifieker te onderzoeken in coaching en analyse.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "submodaliteiten",
+        "title": "Submodaliteiten",
+        "image_stem": "submodaliteiten_afbeelding",
+        "intro": "Submodaliteiten gaan over de fijne bouwstenen van interne ervaring, zoals grootte, helderheid, afstand, volume, tempo en intensiteit.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model laat zien dat niet alleen de inhoud van een ervaring telt, maar ook de manier waarop die ervaring intern is opgebouwd.",
+                    "Kleine verschuivingen in submodaliteiten kunnen de beleving verrassend sterk veranderen.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let op contrasten: dichtbij versus ver weg, fel versus dof, luid versus zacht, snel versus traag.",
+                    "Daarmee leren studenten ervaring ontleden in concrete, manipuleerbare elementen.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik submodaliteiten in oefeningen rond state management, motivatie, herinnering en verandering van beleving.",
+                    "Het model is vooral sterk wanneer je abstracte ervaring tastbaar en experimenteerbaar wilt maken.",
+                ],
+            },
+        ],
+    },
+    {
+        "slug": "cartesiaanse-vragen",
+        "title": "Cartesiaanse vragen",
+        "image_stem": "cartesiaanse-vragen_afbeelding",
+        "intro": "Cartesiaanse vragen helpen overtuigingen en aannames systematisch te onderzoeken door meerdere logische richtingen te bevragen.",
+        "blocks": [
+            {
+                "heading": "Wat dit model duidelijk maakt",
+                "paragraphs": [
+                    "Het model doorbreekt vanzelfsprekende conclusies door niet alleen te vragen wat waar is, maar ook wat waar is als het tegendeel geldt.",
+                    "Daardoor worden verborgen aannames zichtbaar.",
+                ],
+            },
+            {
+                "heading": "Waar je tijdens het bestuderen op let",
+                "paragraphs": [
+                    "Let op de logische combinaties en op hoe een overtuiging verandert zodra je de vraagstelling draait of omkeert.",
+                    "Voor studenten is dit een sterk hulpmiddel om denkstructuren kritisch te toetsen.",
+                ],
+            },
+            {
+                "heading": "Hoe je dit in de praktijk gebruikt",
+                "paragraphs": [
+                    "Gebruik cartesiaanse vragen om beperkende overtuigingen, complexe equivalenties en snelle gevolgtrekkingen te onderzoeken.",
+                    "Het model past goed bij verdieping, reflectie en het openen van nieuwe perspectieven.",
+                ],
+            },
+        ],
+    },
+]
+MODEL_PAGE_LOOKUP = {model["slug"]: model for model in MODEL_PAGES}
 
 
 @dataclass
@@ -206,6 +531,10 @@ class WebApp:
 
             if request.path == "/settings/theme":
                 return self.theme_settings(connection, request, context)
+
+            model_match = re.fullmatch(r"/models/([a-z0-9-]+)", request.path)
+            if model_match:
+                return self.model_page(context, model_match.group(1))
 
             module_quiz_complete_match = re.fullmatch(r"/modules/(\d+)/quiz/complete", request.path)
             if module_quiz_complete_match:
@@ -592,19 +921,6 @@ class WebApp:
             """,
             (user_id, user_id, active["organization_id"]),
         ).fetchall()
-        recent_attempts = connection.execute(
-            """
-            SELECT attempts.*, exercises.title AS exercise_title, exercises.exercise_type,
-                   assignments.title AS assignment_title
-            FROM attempts
-            JOIN exercises ON exercises.id = attempts.exercise_id
-            LEFT JOIN assignments ON assignments.id = attempts.assignment_id
-            WHERE attempts.user_id = ?
-            ORDER BY attempts.submitted_at DESC
-            LIMIT 6
-            """,
-            (user_id,),
-        ).fetchall()
         modules = connection.execute(
             """
             SELECT modules.id, modules.title,
@@ -632,16 +948,7 @@ class WebApp:
                 ]
             )
 
-        attempt_rows = []
-        for attempt in recent_attempts:
-            attempt_rows.append(
-                [
-                    f"<a href='/attempts/{attempt['id']}'>{h(attempt['exercise_title'])}</a>",
-                    h(attempt["assignment_title"] or "Vrij oefenen"),
-                    format_score(db.effective_score(attempt)),
-                    h(attempt["status"]),
-                ]
-            )
+        model_rows = [[f"<a href='/models/{model['slug']}'>{h(model['title'])}</a>"] for model in MODEL_PAGES]
 
         module_rows = []
         for module in modules:
@@ -659,14 +966,73 @@ class WebApp:
             + self.render_table(["Opdracht", "Mode", "Deadline", "Voortgang"], assignment_rows)
             + "</section>",
             "<section class='grid two-up dashboard-split'>"
-            + "<article class='panel'><h2>Recent resultaat</h2>"
-            + self.render_table(["Oefening", "Opdracht", "Score", "Status"], attempt_rows)
+            + "<article class='panel'><h2>Modellen overzicht</h2>"
+            + self.render_table(["Model"], model_rows)
             + "</article>"
             + "<article class='panel'><h2>Verdiepingspaden</h2>"
             + self.render_table(["Leerpad", "Geoefend", "Gemiddelde score"], module_rows)
             + "</article></section>",
         ]
         return self.html("Student dashboard", "".join(content), context)
+
+    def model_image_url(self, image_stem: str) -> tuple[str | None, str]:
+        image_dir = STATIC_DIR / MODEL_IMAGE_DIR_NAME
+        for suffix in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+            candidate = image_dir / f"{image_stem}{suffix}"
+            if candidate.exists():
+                relative_path = candidate.relative_to(STATIC_DIR).as_posix()
+                return quote(f"/static/{relative_path}", safe="/"), candidate.name
+        return None, f"{image_stem}.png"
+
+    def model_page(self, context: dict, model_slug: str) -> Response:
+        model = MODEL_PAGE_LOOKUP.get(model_slug)
+        if not model:
+            return self.not_found(context)
+
+        image_url, expected_filename = self.model_image_url(model["image_stem"])
+        if image_url:
+            image_panel = (
+                "<section class='panel'>"
+                f"<img src='{h(image_url)}' alt='{h(model['title'])}' "
+                "style='display:block; width:100%; border-radius:1rem; border:1px solid rgba(23,48,60,0.08);'>"
+                "</section>"
+            )
+        else:
+            image_panel = (
+                "<section class='panel inset'>"
+                "<span class='eyebrow'>Afbeelding toevoegen</span>"
+                f"<h2>{h(model['title'])}</h2>"
+                f"<p>Plaats voor dit model een afbeelding in <code>static/{h(MODEL_IMAGE_DIR_NAME)}</code> "
+                f"met bestandsnaam <code>{h(expected_filename)}</code>. Extensies zoals <code>.png</code>, "
+                "<code>.jpg</code>, <code>.webp</code> en <code>.svg</code> werken direct.</p>"
+                "</section>"
+            )
+
+        text_blocks = "".join(
+            "<article class='panel'>"
+            f"<h2>{h(block['heading'])}</h2>"
+            + "".join(f"<p>{h(paragraph)}</p>" for paragraph in block["paragraphs"])
+            + "</article>"
+            for block in model["blocks"]
+        )
+
+        content = [
+            "<section class='hero compact'>"
+            "<div>"
+            "<span class='eyebrow'>Modellen overzicht</span>"
+            f"<h1>{h(model['title'])}</h1>"
+            f"<p>{h(model['intro'])}</p>"
+            "</div>"
+            "<div class='actions'>"
+            "<a class='button button-secondary' href='/dashboard'>Terug naar dashboard</a>"
+            "</div>"
+            "</section>",
+            image_panel,
+            "<section class='grid two-up'>"
+            + text_blocks
+            + "</section>",
+        ]
+        return self.html(model["title"], "".join(content), context)
 
     def trainer_dashboard(self, connection, context: dict) -> Response:
         active = context["active_membership"]
