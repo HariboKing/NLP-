@@ -4,6 +4,7 @@ import json
 import mimetypes
 import re
 import secrets
+import sqlite3
 from dataclasses import dataclass
 from email.parser import BytesParser
 from email.policy import default as email_policy
@@ -523,6 +524,9 @@ class WebApp:
             if request.path == "/dashboard":
                 return self.render_dashboard(connection, request, context)
 
+            if request.path == "/archive":
+                return self.archive_page(connection, context)
+
             if request.path == "/assignments/new":
                 return self.assignment_builder(connection, request, context)
 
@@ -547,6 +551,16 @@ class WebApp:
             module_match = re.fullmatch(r"/modules/(\d+)", request.path)
             if module_match:
                 return self.module_page(connection, request, context, int(module_match.group(1)))
+
+            assignment_student_review_match = re.fullmatch(r"/assignments/(\d+)/students/(\d+)", request.path)
+            if assignment_student_review_match:
+                return self.assignment_student_review_page(
+                    connection,
+                    request,
+                    context,
+                    int(assignment_student_review_match.group(1)),
+                    int(assignment_student_review_match.group(2)),
+                )
 
             assignment_match = re.fullmatch(r"/assignments/(\d+)", request.path)
             if assignment_match:
@@ -727,6 +741,8 @@ class WebApp:
             links.append("<a class='nav-link' href='/reviews'>Reviews</a>")
         if active and active["role"] == "organization_admin":
             links.append("<a class='nav-link' href='/settings/theme'>Branding</a>")
+        if active:
+            links.append("<a class='nav-link' href='/archive'>Archief</a>")
         links.append("<a class='nav-link' href='/logout'>Logout</a>")
         return "<nav class='topnav'>" + "".join(links) + "</nav>"
 
@@ -848,6 +864,148 @@ class WebApp:
             body_rows.append(f"<tr><td colspan='{len(headers)}'>Nog geen data.</td></tr>")
         return f"<table class='table'><thead><tr>{head}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>"
 
+    def trainer_heading_label(self, assignments) -> str:
+        trainer_names = sorted(
+            {
+                f"{row['creator_first_name']} {row['creator_last_name']}".strip()
+                for row in assignments
+                if "creator_first_name" in row.keys() and "creator_last_name" in row.keys()
+                and row["creator_first_name"] and row["creator_last_name"]
+            }
+        )
+        if len(trainer_names) == 1:
+            return trainer_names[0]
+        if len(trainer_names) > 1:
+            return "je trainers"
+        return "je trainer"
+
+    def parse_assignment_questions(self, raw_text: str) -> list[str]:
+        blocks = re.split(r"\n\s*\n", raw_text or "")
+        return [" ".join(block.strip().split()) for block in blocks if block.strip()]
+
+    def exercise_display_label(self, exercise) -> str:
+        content_json = exercise["content_json"] if "content_json" in exercise.keys() else None
+        content = parse_json(content_json, {})
+        return content.get("question_label") or content.get("question") or exercise["prompt"] or exercise["title"]
+
+    def exercise_type_label(self, exercise_type: str) -> str:
+        if exercise_type in {"reflection", "case_review"}:
+            return "Open vraag"
+        return exercise_type.replace("_", " ").title()
+
+    def get_assignment_reference_modules(self, connection, assignment_id: int):
+        return connection.execute(
+            """
+            SELECT modules.id, modules.title, modules.summary, assignment_reference_modules.sort_order
+            FROM assignment_reference_modules
+            JOIN modules ON modules.id = assignment_reference_modules.module_id
+            WHERE assignment_reference_modules.assignment_id = ?
+            ORDER BY assignment_reference_modules.sort_order, modules.sort_order
+            """,
+            (assignment_id,),
+        ).fetchall()
+
+    def get_assignment_target_groups(self, connection, assignment_id: int):
+        return connection.execute(
+            """
+            SELECT student_groups.id, student_groups.name,
+                   COUNT(student_group_members.user_id) AS member_count
+            FROM assignment_target_groups
+            JOIN student_groups ON student_groups.id = assignment_target_groups.group_id
+            LEFT JOIN student_group_members ON student_group_members.group_id = student_groups.id
+            WHERE assignment_target_groups.assignment_id = ?
+            GROUP BY student_groups.id
+            ORDER BY student_groups.name
+            """,
+            (assignment_id,),
+        ).fetchall()
+
+    def get_assignment_items(self, connection, assignment_id: int):
+        return connection.execute(
+            """
+            SELECT assignment_items.sort_order, exercises.*
+            FROM assignment_items
+            JOIN exercises ON exercises.id = assignment_items.exercise_id
+            WHERE assignment_items.assignment_id = ?
+            ORDER BY assignment_items.sort_order
+            """,
+            (assignment_id,),
+        ).fetchall()
+
+    def get_assignment_progress_map(self, connection, assignment_id: int, user_id: int) -> dict[int, sqlite3.Row]:
+        attempts = connection.execute(
+            """
+            SELECT attempts.*
+            FROM attempts
+            JOIN (
+                SELECT exercise_id, MAX(id) AS latest_id
+                FROM attempts
+                WHERE assignment_id = ? AND user_id = ?
+                GROUP BY exercise_id
+            ) latest ON latest.latest_id = attempts.id
+            """,
+            (assignment_id, user_id),
+        ).fetchall()
+        return {attempt["exercise_id"]: attempt for attempt in attempts}
+
+    def get_next_assignment_item(self, items, progress_map) -> sqlite3.Row | None:
+        for item in items:
+            if item["id"] not in progress_map:
+                return item
+        return items[0] if items else None
+
+    def assignment_launch_link(self, assignment_id: int, items, progress_map) -> str:
+        next_item = self.get_next_assignment_item(items, progress_map)
+        if not next_item:
+            return f"/assignments/{assignment_id}"
+        return f"/exercises/{next_item['id']}?assignment={assignment_id}"
+
+    def create_assignment_question_exercise(
+        self,
+        connection,
+        *,
+        assignment_id: int,
+        assignment_title: str,
+        organization_id: int,
+        reference_module_id: int,
+        question_text: str,
+        question_index: int,
+    ) -> int:
+        content = {
+            "question_label": f"Vraag {question_index}",
+            "question": question_text,
+            "placeholder": "Schrijf hier je antwoord...",
+            "model_answer": "",
+        }
+        cursor = connection.execute(
+            """
+            INSERT INTO exercises (
+                organization_id, module_id, topic_id, concept_id, title, exercise_type,
+                mode_support, difficulty, instructions, prompt, content_json, scoring_json,
+                max_score, requires_manual_review, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                organization_id,
+                reference_module_id,
+                None,
+                None,
+                f"assignment-{assignment_id}-vraag-{question_index}",
+                "reflection",
+                "learn,exam",
+                "custom",
+                "Beantwoord deze vraag in je eigen woorden. De trainer beoordeelt je antwoord later.",
+                question_text,
+                json.dumps(content),
+                json.dumps({}),
+                100.0,
+                1,
+                "assignment_only",
+                db.utc_now_iso(),
+            ),
+        )
+        return cursor.lastrowid
+
     def render_dashboard(self, connection, request: Request, context: dict) -> Response:
         user = context["user"]
         active = context["active_membership"]
@@ -908,6 +1066,8 @@ class WebApp:
         assignments = connection.execute(
             """
             SELECT a.*,
+                   users.first_name AS creator_first_name,
+                   users.last_name AS creator_last_name,
                    (SELECT COUNT(*) FROM assignment_items ai WHERE ai.assignment_id = a.id) AS total_items,
                    (
                      SELECT COUNT(DISTINCT at.exercise_id)
@@ -916,6 +1076,7 @@ class WebApp:
                    ) AS completed_items
             FROM assignments a
             JOIN assignment_targets t ON t.assignment_id = a.id
+            JOIN users ON users.id = a.created_by_user_id
             WHERE t.target_user_id = ? AND a.organization_id = ?
             ORDER BY a.due_date ASC, a.created_at DESC
             """,
@@ -950,6 +1111,19 @@ class WebApp:
 
         model_rows = [[f"<a href='/models/{model['slug']}'>{h(model['title'])}</a>"] for model in MODEL_PAGES]
 
+        exam_rows = []
+        learn_rows = []
+        for assignment in assignments:
+            row = [
+                f"<a href='/assignments/{assignment['id']}'>{h(assignment['title'])}</a>",
+                h(assignment["due_date"]),
+                h(f"{assignment['completed_items']}/{assignment['total_items']}"),
+            ]
+            if (assignment["mode"] or "").lower() == "exam":
+                exam_rows.append(row)
+            else:
+                learn_rows.append(row)
+
         module_rows = []
         for module in modules:
             module_rows.append(
@@ -960,11 +1134,17 @@ class WebApp:
                 ]
             )
 
+        trainer_label = self.trainer_heading_label(assignments)
         content = [
             "<section class='hero compact'><div><span class='eyebrow'>Student view</span><h1>Jouw leeromgeving</h1><p>Bekijk je examenopdrachten, ga verder in je verdiepingspaden en volg je voortgang.</p></div></section>",
-            "<section class='panel'><h2>Examenopdrachten</h2>"
-            + self.render_table(["Opdracht", "Mode", "Deadline", "Voortgang"], assignment_rows)
-            + "</section>",
+            f"<section class='panel'><h2>Opdrachten van {h(trainer_label)}</h2><p>Hier vind je opdrachten die door je trainer voor jou of je groep zijn klaargezet.</p></section>",
+            "<section class='grid two-up'>"
+            + "<article class='panel'><h2>Examenopdrachten</h2>"
+            + self.render_table(["Opdracht", "Deadline", "Voortgang"], exam_rows)
+            + "</article>"
+            + "<article class='panel inset'><h2>Oefenopdrachten</h2>"
+            + self.render_table(["Opdracht", "Deadline", "Voortgang"], learn_rows)
+            + "</article></section>",
             "<section class='grid two-up dashboard-split'>"
             + "<article class='panel'><h2>Modellen overzicht</h2>"
             + self.render_table(["Model"], model_rows)
@@ -1777,10 +1957,14 @@ class WebApp:
             description = request.get("description").strip()
             mode = request.get("mode") or "learn"
             due_date = request.get("due_date")
-            target_user_ids = [int(value) for value in request.getlist("target_user_ids") if value]
-            exercise_ids = [int(value) for value in request.getlist("exercise_ids") if value]
-            if not title or not target_user_ids or not exercise_ids:
-                return self.redirect("/assignments/new?notice=" + quote_plus("Vul titel, deelnemers en oefeningen in."))
+            group_ids = [int(value) for value in request.getlist("group_ids") if value]
+            module_ids = [int(value) for value in request.getlist("module_ids") if value]
+            question_blocks = self.parse_assignment_questions(request.get("question_blocks"))
+            if not title or not group_ids or not module_ids or not question_blocks:
+                return self.redirect(
+                    "/assignments/new?notice="
+                    + quote_plus("Vul titel, groepen, verdiepingspaden en minstens een vraag in.")
+                )
 
             cursor = connection.execute(
                 """
@@ -1799,48 +1983,86 @@ class WebApp:
                 ),
             )
             assignment_id = cursor.lastrowid
-            for index, exercise_id in enumerate(exercise_ids, start=1):
+
+            for sort_order, module_id in enumerate(module_ids, start=1):
+                connection.execute(
+                    """
+                    INSERT INTO assignment_reference_modules (assignment_id, module_id, sort_order)
+                    VALUES (?, ?, ?)
+                    """,
+                    (assignment_id, module_id, sort_order),
+                )
+
+            for group_id in group_ids:
+                connection.execute(
+                    "INSERT INTO assignment_target_groups (assignment_id, group_id) VALUES (?, ?)",
+                    (assignment_id, group_id),
+                )
+
+            placeholders = ",".join("?" for _ in group_ids)
+            target_users = connection.execute(
+                f"""
+                SELECT DISTINCT user_id
+                FROM student_group_members
+                WHERE group_id IN ({placeholders})
+                ORDER BY user_id
+                """,
+                tuple(group_ids),
+            ).fetchall()
+            for row in target_users:
+                connection.execute(
+                    "INSERT INTO assignment_targets (assignment_id, target_user_id) VALUES (?, ?)",
+                    (assignment_id, row["user_id"]),
+                )
+
+            reference_module_id = module_ids[0]
+            for index, question_text in enumerate(question_blocks, start=1):
+                exercise_id = self.create_assignment_question_exercise(
+                    connection,
+                    assignment_id=assignment_id,
+                    assignment_title=title,
+                    organization_id=active["organization_id"],
+                    reference_module_id=reference_module_id,
+                    question_text=question_text,
+                    question_index=index,
+                )
                 connection.execute(
                     "INSERT INTO assignment_items (assignment_id, exercise_id, sort_order) VALUES (?, ?, ?)",
                     (assignment_id, exercise_id, index),
-                )
-            for target_user_id in target_user_ids:
-                connection.execute(
-                    "INSERT INTO assignment_targets (assignment_id, target_user_id) VALUES (?, ?)",
-                    (assignment_id, target_user_id),
                 )
             connection.commit()
             return self.redirect(
                 "/assignments/" + str(assignment_id) + "?notice=" + quote_plus("Opdracht aangemaakt.")
             )
 
-        exercises = connection.execute(
+        groups = connection.execute(
             """
-            SELECT exercises.id, exercises.title, exercises.exercise_type, modules.title AS module_title
-            FROM exercises
-            JOIN modules ON modules.id = exercises.module_id
-            WHERE exercises.status = 'published'
-            ORDER BY modules.sort_order, exercises.title
+            SELECT student_groups.id, student_groups.name,
+                   COUNT(student_group_members.user_id) AS member_count
+            FROM student_groups
+            LEFT JOIN student_group_members ON student_group_members.group_id = student_groups.id
+            WHERE student_groups.organization_id = ?
+            GROUP BY student_groups.id
+            ORDER BY student_groups.name
             """
-        ).fetchall()
-        students = connection.execute(
-            """
-            SELECT users.id, users.first_name, users.last_name
-            FROM memberships
-            JOIN users ON users.id = memberships.user_id
-            WHERE memberships.organization_id = ? AND memberships.role = 'student'
-            ORDER BY users.first_name, users.last_name
-            """,
+            ,
             (active["organization_id"],),
         ).fetchall()
+        modules = connection.execute(
+            """
+            SELECT id, title, summary
+            FROM modules
+            ORDER BY sort_order
+            """
+        ).fetchall()
 
-        exercise_options = "".join(
-            f"<label class='checkbox-row'><input type='checkbox' name='exercise_ids' value='{exercise['id']}'><span><strong>{h(exercise['title'])}</strong><small>{h(exercise['module_title'])} - {h(exercise['exercise_type'])}</small></span></label>"
-            for exercise in exercises
+        group_options = "".join(
+            f"<label class='checkbox-row'><input type='checkbox' name='group_ids' value='{group['id']}'><span><strong>{h(group['name'])}</strong><small>{h(group['member_count'])} studenten</small></span></label>"
+            for group in groups
         )
-        student_options = "".join(
-            f"<label class='checkbox-row'><input type='checkbox' name='target_user_ids' value='{student['id']}'><span>{h(student['first_name'])} {h(student['last_name'])}</span></label>"
-            for student in students
+        module_options = "".join(
+            f"<label class='checkbox-row'><input type='checkbox' name='module_ids' value='{module['id']}'><span><strong>{h(module['title'])}</strong><small>{h(module['summary'])}</small></span></label>"
+            for module in modules
         )
 
         body = f"""
@@ -1857,36 +2079,35 @@ class WebApp:
                   <option value='exam'>Exam mode</option>
                 </select>
               </label>
-              <label class='field'><span>Deadline</span><input type='date' name='due_date'></label>
-            </div>
-            <div class='grid two-up'>
-              <article class='panel inset'><h2>Studenten</h2>{student_options}</article>
-              <article class='panel inset'><h2>Oefeningen</h2>{exercise_options}</article>
-            </div>
-            <button class='button button-primary' type='submit'>Opslaan</button>
-          </form>
-        </section>
+                <label class='field'><span>Deadline</span><input type='date' name='due_date'></label>
+              </div>
+              <div class='grid two-up'>
+                <article class='panel inset'><h2>Groepen</h2><p class='helper'>Selecteer een of meer groepen die deze opdracht moeten ontvangen.</p>{group_options}</article>
+                <article class='panel inset'><h2>Verdiepingspaden als referentie</h2><p class='helper'>Deze leerpaden worden niet als vragen ingezet, maar als naslagwerk voor de student.</p>{module_options}</article>
+              </div>
+              <label class='field'><span>Vragen voor de student</span><textarea name='question_blocks' rows='12' placeholder='Plaats hier de vragen. Gebruik een lege regel tussen twee vragenblokken.' required></textarea></label>
+              <button class='button button-primary' type='submit'>Opslaan</button>
+            </form>
+          </section>
         """
         return self.html("Nieuwe opdracht", body, context)
 
     def assignment_page(self, connection, request: Request, context: dict, assignment_id: int) -> Response:
         assignment = connection.execute(
-            "SELECT * FROM assignments WHERE id = ?",
+            """
+            SELECT assignments.*, users.first_name AS creator_first_name, users.last_name AS creator_last_name
+            FROM assignments
+            JOIN users ON users.id = assignments.created_by_user_id
+            WHERE assignments.id = ?
+            """,
             (assignment_id,),
         ).fetchone()
         if not assignment:
             return self.not_found(context)
 
-        items = connection.execute(
-            """
-            SELECT assignment_items.sort_order, exercises.*
-            FROM assignment_items
-            JOIN exercises ON exercises.id = assignment_items.exercise_id
-            WHERE assignment_items.assignment_id = ?
-            ORDER BY assignment_items.sort_order
-            """,
-            (assignment_id,),
-        ).fetchall()
+        items = self.get_assignment_items(connection, assignment_id)
+        reference_modules = self.get_assignment_reference_modules(connection, assignment_id)
+        target_groups = self.get_assignment_target_groups(connection, assignment_id)
 
         if self.require_role(context, {"student"}):
             target = connection.execute(
@@ -1896,41 +2117,55 @@ class WebApp:
             if not target:
                 return self.forbidden(context)
 
+            progress_map = self.get_assignment_progress_map(connection, assignment_id, context["user"]["user_id"])
+            launch_link = self.assignment_launch_link(assignment_id, items, progress_map)
+            completed_count = len(progress_map)
+            total_count = len(items)
             rows = []
             for item in items:
-                latest = connection.execute(
-                    """
-                    SELECT * FROM attempts
-                    WHERE assignment_id = ? AND exercise_id = ? AND user_id = ?
-                    ORDER BY submitted_at DESC
-                    LIMIT 1
-                    """,
-                    (assignment_id, item["id"], context["user"]["user_id"]),
-                ).fetchone()
-                action = (
-                    f"<a class='button button-secondary small' href='/attempts/{latest['id']}'>Bekijk resultaat</a>"
-                    if latest and assignment["mode"] == "exam"
-                    else f"<a class='button button-secondary small' href='/exercises/{item['id']}?assignment={assignment_id}'>Open oefening</a>"
-                )
+                latest = progress_map.get(item["id"])
+                if latest:
+                    action = f"<a class='button button-secondary small' href='/attempts/{latest['id']}'>Bekijk antwoord</a>"
+                    status_label = "Beantwoord"
+                else:
+                    action = f"<a class='button button-secondary small' href='/exercises/{item['id']}?assignment={assignment_id}'>Open vraag</a>"
+                    status_label = "Nog niet gestart"
                 rows.append(
                     [
-                        h(item["title"]),
-                        h(item["exercise_type"]),
-                        format_score(db.effective_score(latest)) if latest else "Nog niet gestart",
+                        h(item["sort_order"]),
+                        h(self.exercise_display_label(item)),
+                        h(status_label),
                         action,
                     ]
                 )
+            reference_rows = [
+                [
+                    f"<a href='/modules/{module['id']}'>{h(module['title'])}</a>",
+                    h(module["summary"]),
+                ]
+                for module in reference_modules
+            ]
+            progress_text = f"{completed_count}/{total_count} vragen beantwoord" if total_count else "Nog geen vragen"
+            flow_button_label = "Verder met opdracht" if completed_count else "Start opdracht"
             body = (
-                f"<section class='hero compact'><div><span class='eyebrow'>{h(assignment['mode'].title())}</span><h1>{h(assignment['title'])}</h1><p>{h(assignment['description'])}</p></div></section>"
-                + "<section class='panel'><h2>Opdrachtonderdelen</h2>"
-                + self.render_table(["Oefening", "Type", "Score", "Actie"], rows)
-                + "</section>"
+                f"<section class='hero compact'><div><span class='eyebrow'>{h(assignment['mode'].title())}</span><h1>{h(assignment['title'])}</h1><p>{h(assignment['description'])}</p><p>Opgesteld door {h(assignment['creator_first_name'])} {h(assignment['creator_last_name'])}.</p></div></section>"
+                + self.metrics_row([("Voortgang", progress_text), ("Referentiepaden", str(len(reference_modules))), ("Mode", h(assignment["mode"].title()))])
+                + "<section class='panel'><div class='actions'>"
+                + f"<a class='button button-primary' href='{h(launch_link)}'>{flow_button_label}</a>"
+                + "</div></section>"
+                + "<section class='grid two-up'>"
+                + "<article class='panel'><h2>Vragen</h2>"
+                + self.render_table(["Volgorde", "Vraag", "Status", "Actie"], rows)
+                + "</article>"
+                + "<article class='panel inset'><h2>Verdiepingspaden ter referentie</h2>"
+                + self.render_table(["Leerpad", "Waar vind je extra uitleg?"], reference_rows)
+                + "</article></section>"
             )
             return self.html(h(assignment["title"]), body, context)
 
         targets = connection.execute(
             """
-            SELECT users.first_name, users.last_name,
+            SELECT users.id, users.first_name, users.last_name,
                    COUNT(DISTINCT attempts.exercise_id) AS completed_items,
                    ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
             FROM assignment_targets
@@ -1946,24 +2181,38 @@ class WebApp:
 
         rows = [
             [
-                h(f"{row['first_name']} {row['last_name']}"),
+                f"<a href='/assignments/{assignment_id}/students/{row['id']}'>{h(row['first_name'])} {h(row['last_name'])}</a>",
                 h(row["completed_items"]),
                 format_score(row["avg_score"]),
             ]
             for row in targets
         ]
+        question_rows = [
+            [
+                h(item["sort_order"]),
+                h(self.exercise_display_label(item)),
+                h(self.exercise_type_label(item["exercise_type"])),
+            ]
+            for item in items
+        ]
+        group_rows = [[h(group["name"]), h(group["member_count"])] for group in target_groups]
+        reference_rows = [[f"<a href='/modules/{module['id']}'>{h(module['title'])}</a>", h(module["summary"])] for module in reference_modules]
         body = (
-            f"<section class='hero compact'><div><span class='eyebrow'>{h(assignment['mode'].title())}</span><h1>{h(assignment['title'])}</h1><p>{h(assignment['description'])}</p></div></section>"
+            f"<section class='hero compact'><div><span class='eyebrow'>{h(assignment['mode'].title())}</span><h1>{h(assignment['title'])}</h1><p>{h(assignment['description'])}</p><p>Opgesteld door {h(assignment['creator_first_name'])} {h(assignment['creator_last_name'])}.</p></div></section>"
             + "<section class='grid two-up'>"
-            + "<article class='panel'><h2>Oefeningen</h2>"
+            + "<article class='panel'><h2>Vragen</h2>"
             + self.render_table(
-                ["Volgorde", "Titel", "Type"],
-                [[h(item["sort_order"]), h(item["title"]), h(item["exercise_type"])] for item in items],
+                ["Volgorde", "Vraag", "Type"],
+                question_rows,
             )
             + "</article>"
-            + "<article class='panel'><h2>Deelnemers</h2>"
+            + "<article class='panel'><h2>Groepen en deelnemers</h2>"
+            + self.render_table(["Groep", "Studenten"], group_rows)
             + self.render_table(["Student", "Voltooid", "Gemiddelde"], rows)
             + "</article></section>"
+            + "<section class='panel'><h2>Verdiepingspaden ter referentie</h2>"
+            + self.render_table(["Leerpad", "Samenvatting"], reference_rows)
+            + "</section>"
         )
         return self.html(h(assignment["title"]), body, context)
 
@@ -1979,6 +2228,13 @@ class WebApp:
             assignment = connection.execute("SELECT * FROM assignments WHERE id = ?", (int(assignment_id),)).fetchone()
             if assignment:
                 mode = assignment["mode"]
+                if self.require_role(context, {"student"}):
+                    target = connection.execute(
+                        "SELECT 1 FROM assignment_targets WHERE assignment_id = ? AND target_user_id = ?",
+                        (assignment["id"], context["user"]["user_id"]),
+                    ).fetchone()
+                    if not target:
+                        return self.forbidden(context)
 
         if request.method == "POST":
             if not self.require_role(context, {"student"}):
@@ -2013,6 +2269,22 @@ class WebApp:
                 (attempt_id, json.dumps(response_payload)),
             )
             connection.commit()
+            if assignment:
+                items = self.get_assignment_items(connection, assignment["id"])
+                current_index = next(
+                    (index for index, item in enumerate(items) if item["id"] == exercise_id),
+                    None,
+                )
+                if current_index is not None and current_index + 1 < len(items):
+                    next_item = items[current_index + 1]
+                    return self.redirect(
+                        f"/exercises/{next_item['id']}?assignment={assignment['id']}&notice="
+                        + quote_plus("Antwoord opgeslagen. Je gaat door naar de volgende vraag.")
+                    )
+                return self.redirect(
+                    f"/assignments/{assignment['id']}?notice="
+                    + quote_plus("Opdracht afgerond. Alle vragen zijn opgeslagen.")
+                )
             return self.redirect(f"/attempts/{attempt_id}?notice=" + quote_plus("Oefening opgeslagen."))
 
         if self.require_role(context, {"student"}) and assignment and assignment["mode"] == "exam":
@@ -2028,16 +2300,17 @@ class WebApp:
                 return self.redirect(f"/attempts/{existing['id']}")
 
         content = parse_json(exercise["content_json"], {})
+        visible_title = self.exercise_display_label(exercise)
         body = f"""
         <section class='panel exercise-panel'>
           <div class='exercise-header'>
             <div>
               <span class='eyebrow'>{h(mode.title())}</span>
-              <h1>{h(exercise['title'])}</h1>
+              <h1>{h(visible_title)}</h1>
               <p>{h(exercise['prompt'])}</p>
             </div>
             <div class='tag-group'>
-              <span class='tag'>{h(exercise['exercise_type'])}</span>
+              <span class='tag'>{h(self.exercise_type_label(exercise['exercise_type']))}</span>
               <span class='tag'>{h(exercise['difficulty'])}</span>
             </div>
           </div>
@@ -2051,7 +2324,7 @@ class WebApp:
           </form>
         </section>
         """
-        return self.html(h(exercise["title"]), body, context)
+        return self.html(h(visible_title), body, context)
 
     def collect_response(self, exercise, request: Request) -> dict:
         exercise_type = exercise["exercise_type"]
@@ -2156,6 +2429,7 @@ class WebApp:
         ).fetchone()
         response_data = parse_json(response_row["response_json"] if response_row else "{}", {})
         content = parse_json(attempt["content_json"], {})
+        attempt_title = content.get("question_label") or content.get("question") or attempt["exercise_title"]
         show_model = (
             not self.require_role(context, {"student"})
             or attempt["assignment_mode"] != "exam"
@@ -2173,7 +2447,7 @@ class WebApp:
         <section class='hero compact'>
           <div>
             <span class='eyebrow'>{h(attempt['assignment_title'] or 'Vrij oefenen')}</span>
-            <h1>{h(attempt['exercise_title'])}</h1>
+            <h1>{h(attempt_title)}</h1>
             <p>Student: {h(attempt['first_name'])} {h(attempt['last_name'])}</p>
           </div>
           <div class='actions'>{action}</div>
@@ -2211,35 +2485,212 @@ class WebApp:
             return f"<p>{h(response_data.get('answer', ''))}</p>"
         return f"<p>{h(response_data.get('answer', ''))}</p>"
 
+    def assignment_student_review_page(
+        self,
+        connection,
+        request: Request,
+        context: dict,
+        assignment_id: int,
+        student_id: int,
+    ) -> Response:
+        if not self.require_role(context, {"trainer", "organization_admin"}):
+            return self.forbidden(context)
+
+        assignment = connection.execute(
+            """
+            SELECT assignments.*, users.first_name AS creator_first_name, users.last_name AS creator_last_name
+            FROM assignments
+            JOIN users ON users.id = assignments.created_by_user_id
+            WHERE assignments.id = ?
+            """,
+            (assignment_id,),
+        ).fetchone()
+        if not assignment:
+            return self.not_found(context)
+
+        student = connection.execute(
+            """
+            SELECT users.id, users.first_name, users.last_name, users.email
+            FROM users
+            JOIN assignment_targets ON assignment_targets.target_user_id = users.id
+            WHERE users.id = ? AND assignment_targets.assignment_id = ?
+            """,
+            (student_id, assignment_id),
+        ).fetchone()
+        if not student:
+            return self.not_found(context)
+
+        if request.method == "POST":
+            if not self.verify_csrf(request, context):
+                return self.forbidden(context, "Ongeldige CSRF token.")
+            attempt_id = int(request.get("attempt_id"))
+            score_override = request.get("score_override").strip()
+            feedback = request.get("feedback").strip() or "Feedback toegevoegd."
+            numeric_score = float(score_override) if score_override else None
+            existing = connection.execute(
+                "SELECT id FROM reviews WHERE attempt_id = ?",
+                (attempt_id,),
+            ).fetchone()
+            if existing:
+                connection.execute(
+                    "UPDATE reviews SET score_override = ?, feedback = ?, reviewed_at = ? WHERE attempt_id = ?",
+                    (numeric_score, feedback, db.utc_now_iso(), attempt_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO reviews (attempt_id, reviewer_user_id, score_override, feedback, reviewed_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (attempt_id, context["user"]["user_id"], numeric_score, feedback, db.utc_now_iso()),
+                )
+            connection.execute(
+                "UPDATE attempts SET manual_score = ?, feedback = ?, status = 'reviewed' WHERE id = ?",
+                (numeric_score, feedback, attempt_id),
+            )
+            connection.commit()
+            return self.redirect(
+                f"/assignments/{assignment_id}/students/{student_id}?notice="
+                + quote_plus("Review opgeslagen.")
+            )
+
+        items = self.get_assignment_items(connection, assignment_id)
+        attempts = connection.execute(
+            """
+            SELECT attempts.*, exercises.exercise_type, exercises.content_json, exercises.prompt,
+                   exercises.title AS exercise_title, assignment_items.sort_order
+            FROM assignment_items
+            JOIN exercises ON exercises.id = assignment_items.exercise_id
+            LEFT JOIN attempts ON attempts.exercise_id = exercises.id
+                               AND attempts.assignment_id = assignment_items.assignment_id
+                               AND attempts.user_id = ?
+            WHERE assignment_items.assignment_id = ?
+            ORDER BY assignment_items.sort_order, attempts.id DESC
+            """,
+            (student_id, assignment_id),
+        ).fetchall()
+
+        latest_attempts: dict[int, sqlite3.Row] = {}
+        for row in attempts:
+            existing = latest_attempts.get(row["exercise_id"])
+            if existing is None:
+                latest_attempts[row["exercise_id"]] = row
+            elif existing["id"] is None and row["id"] is not None:
+                latest_attempts[row["exercise_id"]] = row
+
+        scored_rows = [row for row in latest_attempts.values() if row["id"] is not None and db.effective_score(row) is not None]
+        average_score = (
+            round(sum(float(db.effective_score(row)) for row in scored_rows) / len(scored_rows), 1)
+            if scored_rows
+            else None
+        )
+
+        review_sections = []
+        for item in items:
+            attempt = latest_attempts.get(item["id"])
+            content = parse_json(item["content_json"], {})
+            title = self.exercise_display_label(item)
+            if not attempt or attempt["id"] is None:
+                review_sections.append(
+                    "<article class='panel'>"
+                    f"<span class='eyebrow'>Vraag {h(item['sort_order'])}</span>"
+                    f"<h2>{h(title)}</h2>"
+                    "<p>Deze vraag is nog niet beantwoord door de student.</p>"
+                    "</article>"
+                )
+                continue
+
+            response_row = connection.execute(
+                "SELECT response_json FROM responses WHERE attempt_id = ?",
+                (attempt["id"],),
+            ).fetchone()
+            response_data = parse_json(response_row["response_json"] if response_row else "{}", {})
+            review = connection.execute(
+                "SELECT * FROM reviews WHERE attempt_id = ?",
+                (attempt["id"],),
+            ).fetchone()
+            current_feedback = review["feedback"] if review else (attempt["feedback"] or "")
+            current_score = review["score_override"] if review and review["score_override"] is not None else (
+                attempt["manual_score"] if attempt["manual_score"] is not None else ""
+            )
+            review_sections.append(
+                "<article class='panel'>"
+                f"<span class='eyebrow'>Vraag {h(item['sort_order'])}</span>"
+                f"<h2>{h(title)}</h2>"
+                f"<p>{h(item['prompt'])}</p>"
+                + self.metrics_row(
+                    [
+                        ("Status", attempt["status"]),
+                        ("Score", format_score(db.effective_score(attempt))),
+                        ("Type", self.exercise_type_label(item["exercise_type"])),
+                    ]
+                )
+                + "<div class='grid two-up'>"
+                + "<article class='panel inset'><h3>Antwoord van student</h3>"
+                + self.render_response_summary(item["exercise_type"], response_data)
+                + "</article>"
+                + "<article class='panel inset'>"
+                f"<form method='post' action='/assignments/{assignment_id}/students/{student_id}'>"
+                f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+                f"<input type='hidden' name='attempt_id' value='{attempt['id']}'>"
+                f"<label class='field'><span>Score override (0-100)</span><input type='number' min='0' max='100' name='score_override' value='{h(current_score)}'></label>"
+                f"<label class='field'><span>Feedback</span><textarea name='feedback' rows='6' required>{h(current_feedback)}</textarea></label>"
+                "<button class='button button-primary' type='submit'>Review opslaan</button>"
+                "</form>"
+                + "</article>"
+                + "</div>"
+                + "</article>"
+            )
+
+        body = [
+            f"<section class='hero compact'><div><span class='eyebrow'>{h(assignment['mode'].title())}</span><h1>{h(student['first_name'])} {h(student['last_name'])}</h1><p>Review voor opdracht {h(assignment['title'])}. Scroll door alle beantwoorde vragen van deze student op een pagina.</p></div><div class='actions'><a class='button button-secondary' href='/assignments/{assignment_id}'>Terug naar opdracht</a></div></section>",
+            self.metrics_row(
+                [
+                    ("Beantwoorde vragen", str(len([row for row in latest_attempts.values() if row["id"] is not None]))),
+                    ("Gemiddelde", format_score(average_score)),
+                    ("Student", f"{student['first_name']} {student['last_name']}"),
+                ]
+            ),
+            "".join(review_sections),
+        ]
+        return self.html("Studentreview", "".join(body), context)
+
     def review_queue(self, connection, request: Request, context: dict) -> Response:
         if not self.require_role(context, {"trainer", "organization_admin"}):
             return self.forbidden(context)
         active = context["active_membership"]
         rows = connection.execute(
             """
-            SELECT attempts.id, attempts.submitted_at, users.first_name, users.last_name,
-                   exercises.title AS exercise_title, assignments.title AS assignment_title
+            SELECT assignments.id, assignments.title, assignments.mode, assignments.due_date,
+                   users.first_name AS creator_first_name, users.last_name AS creator_last_name,
+                   COUNT(attempts.id) AS pending_items,
+                   COUNT(DISTINCT attempts.user_id) AS pending_students,
+                   MAX(attempts.submitted_at) AS latest_submission
             FROM attempts
             JOIN assignments ON assignments.id = attempts.assignment_id
+            JOIN users ON users.id = assignments.created_by_user_id
             JOIN exercises ON exercises.id = attempts.exercise_id
-            JOIN users ON users.id = attempts.user_id
             WHERE assignments.organization_id = ?
               AND attempts.status = 'submitted'
               AND exercises.requires_manual_review = 1
-            ORDER BY attempts.submitted_at DESC
+            GROUP BY assignments.id
+            ORDER BY latest_submission DESC
             """,
             (active["organization_id"],),
         ).fetchall()
         content = (
             "<section class='panel'><h1>Open reviews</h1>"
             + self.render_table(
-                ["Oefening", "Student", "Opdracht", "Ingediend"],
+                ["Opdracht", "Mode", "Trainer", "Open vragen", "Studenten", "Laatste inzending", "Actie"],
                 [
                     [
-                        f"<a href='/attempts/{row['id']}/review'>{h(row['exercise_title'])}</a>",
-                        h(f"{row['first_name']} {row['last_name']}"),
-                        h(row["assignment_title"]),
-                        h(row["submitted_at"].replace("T", " ")),
+                        f"<a href='/assignments/{row['id']}'>{h(row['title'])}</a>",
+                        h((row["mode"] or "").title()),
+                        h(f"{row['creator_first_name']} {row['creator_last_name']}"),
+                        h(row["pending_items"]),
+                        h(row["pending_students"]),
+                        h((row["latest_submission"] or "").replace("T", " ")),
+                        f"<a class='button button-secondary small' href='/assignments/{row['id']}'>Verder gaan met beoordelen</a>",
                     ]
                     for row in rows
                 ],
@@ -2247,6 +2698,163 @@ class WebApp:
             + "</section>"
         )
         return self.html("Reviews", content, context)
+
+    def archive_page(self, connection, context: dict) -> Response:
+        active = context["active_membership"]
+        if not active:
+            return self.forbidden(context)
+
+        if active["role"] in {"trainer", "organization_admin"}:
+            assignments = connection.execute(
+                """
+                SELECT assignments.id, assignments.title, assignments.mode, assignments.created_at,
+                       COALESCE(
+                           GROUP_CONCAT(DISTINCT student_groups.name),
+                           'Geen groep gekoppeld'
+                       ) AS group_names,
+                       (
+                           SELECT COUNT(*) FROM assignment_items WHERE assignment_id = assignments.id
+                       ) AS item_count,
+                       (
+                           SELECT COUNT(*) FROM assignment_targets WHERE assignment_id = assignments.id
+                       ) AS target_count,
+                       (
+                           SELECT COUNT(DISTINCT attempts.user_id || ':' || attempts.exercise_id)
+                           FROM attempts
+                           WHERE attempts.assignment_id = assignments.id
+                             AND attempts.status IN ('reviewed', 'scored')
+                       ) AS completed_pairs,
+                       (
+                           SELECT COUNT(*)
+                           FROM attempts
+                           WHERE attempts.assignment_id = assignments.id
+                             AND attempts.status = 'submitted'
+                       ) AS pending_reviews,
+                       (
+                           SELECT MAX(COALESCE(reviews.reviewed_at, attempts.submitted_at))
+                           FROM attempts
+                           LEFT JOIN reviews ON reviews.attempt_id = attempts.id
+                           WHERE attempts.assignment_id = assignments.id
+                       ) AS archive_date
+                FROM assignments
+                LEFT JOIN assignment_target_groups ON assignment_target_groups.assignment_id = assignments.id
+                LEFT JOIN student_groups ON student_groups.id = assignment_target_groups.group_id
+                WHERE assignments.organization_id = ?
+                GROUP BY assignments.id
+                ORDER BY COALESCE(archive_date, assignments.created_at) DESC
+                """,
+                (active["organization_id"],),
+            ).fetchall()
+
+            archived = [
+                row
+                for row in assignments
+                if int(row["item_count"] or 0) > 0
+                and int(row["target_count"] or 0) > 0
+                and int(row["pending_reviews"] or 0) == 0
+                and int(row["completed_pairs"] or 0) >= int(row["item_count"]) * int(row["target_count"])
+            ]
+            exam_rows = [
+                [
+                    f"<a href='/assignments/{row['id']}'>{h(row['title'])}</a>",
+                    h(row["group_names"]),
+                    h((row["archive_date"] or row["created_at"]).split("T")[0]),
+                ]
+                for row in archived
+                if (row["mode"] or "").lower() == "exam"
+            ]
+            learn_rows = [
+                [
+                    f"<a href='/assignments/{row['id']}'>{h(row['title'])}</a>",
+                    h(row["group_names"]),
+                    h((row["archive_date"] or row["created_at"]).split("T")[0]),
+                ]
+                for row in archived
+                if (row["mode"] or "").lower() != "exam"
+            ]
+            body = [
+                "<section class='hero compact'><div><span class='eyebrow'>Archief</span><h1>Opdrachtarchief</h1><p>Bekijk afgeronde en beoordeelde opdrachten per groep en per type.</p></div></section>",
+                "<section class='grid two-up'>"
+                + "<article class='panel'><h2>Examenopdrachten</h2>"
+                + self.render_table(["Opdracht", "Groep", "Datum"], exam_rows)
+                + "</article>"
+                + "<article class='panel inset'><h2>Oefenopdrachten</h2>"
+                + self.render_table(["Opdracht", "Groep", "Datum"], learn_rows)
+                + "</article></section>",
+            ]
+            return self.html("Archief", "".join(body), context)
+
+        user_id = context["user"]["user_id"]
+        assignments = connection.execute(
+            """
+            SELECT assignments.id, assignments.title, assignments.mode, assignments.created_at,
+                   (
+                       SELECT COUNT(*) FROM assignment_items WHERE assignment_id = assignments.id
+                   ) AS item_count,
+                   (
+                       SELECT COUNT(DISTINCT attempts.exercise_id)
+                       FROM attempts
+                       WHERE attempts.assignment_id = assignments.id
+                         AND attempts.user_id = ?
+                         AND attempts.status IN ('reviewed', 'scored')
+                   ) AS completed_items,
+                   (
+                       SELECT COUNT(*)
+                       FROM attempts
+                       WHERE attempts.assignment_id = assignments.id
+                         AND attempts.user_id = ?
+                         AND attempts.status = 'submitted'
+                   ) AS pending_reviews,
+                   (
+                       SELECT MAX(COALESCE(reviews.reviewed_at, attempts.submitted_at))
+                       FROM attempts
+                       LEFT JOIN reviews ON reviews.attempt_id = attempts.id
+                       WHERE attempts.assignment_id = assignments.id
+                         AND attempts.user_id = ?
+                   ) AS archive_date
+            FROM assignments
+            JOIN assignment_targets ON assignment_targets.assignment_id = assignments.id
+            WHERE assignment_targets.target_user_id = ?
+              AND assignments.organization_id = ?
+            ORDER BY COALESCE(archive_date, assignments.created_at) DESC
+            """,
+            (user_id, user_id, user_id, user_id, active["organization_id"]),
+        ).fetchall()
+
+        archived = [
+            row
+            for row in assignments
+            if int(row["item_count"] or 0) > 0
+            and int(row["pending_reviews"] or 0) == 0
+            and int(row["completed_items"] or 0) >= int(row["item_count"])
+        ]
+        exam_rows = [
+            [
+                f"<a href='/assignments/{row['id']}'>{h(row['title'])}</a>",
+                h((row["archive_date"] or row["created_at"]).split("T")[0]),
+            ]
+            for row in archived
+            if (row["mode"] or "").lower() == "exam"
+        ]
+        learn_rows = [
+            [
+                f"<a href='/assignments/{row['id']}'>{h(row['title'])}</a>",
+                h((row["archive_date"] or row["created_at"]).split("T")[0]),
+            ]
+            for row in archived
+            if (row["mode"] or "").lower() != "exam"
+        ]
+        body = [
+            "<section class='hero compact'><div><span class='eyebrow'>Archief</span><h1>Jouw archief</h1><p>Bekijk afgeronde opdrachten die volledig zijn beoordeeld.</p></div></section>",
+            "<section class='grid two-up'>"
+            + "<article class='panel'><h2>Examenopdrachten</h2>"
+            + self.render_table(["Opdracht", "Datum"], exam_rows)
+            + "</article>"
+            + "<article class='panel inset'><h2>Oefenopdrachten</h2>"
+            + self.render_table(["Opdracht", "Datum"], learn_rows)
+            + "</article></section>",
+        ]
+        return self.html("Archief", "".join(body), context)
 
     def review_attempt(self, connection, request: Request, context: dict, attempt_id: int) -> Response:
         if not self.require_role(context, {"trainer", "organization_admin"}):
@@ -2300,10 +2908,11 @@ class WebApp:
         ).fetchone()
         response_data = parse_json(response_row["response_json"] if response_row else "{}", {})
         content = parse_json(attempt["content_json"], {})
+        attempt_title = content.get("question_label") or content.get("question") or attempt["exercise_title"]
         guidance_points = "".join(f"<li>{h(point)}</li>" for point in content.get("guidance_points", []))
         body = f"""
         <section class='panel form-panel'>
-          <h1>Review: {h(attempt['exercise_title'])}</h1>
+          <h1>Review: {h(attempt_title)}</h1>
           <p>Student: {h(attempt['first_name'])} {h(attempt['last_name'])}</p>
           <div class='grid two-up'>
             <article class='panel inset'>
