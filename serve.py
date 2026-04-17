@@ -4,10 +4,12 @@ import os
 from wsgiref.simple_server import make_server
 
 from nlp_trainer_support.config import DEFAULT_HOST, DEFAULT_PORT
+from nlp_trainer_support.runtime_setup import initialize_runtime_database
 from nlp_trainer_support.web import create_app
 
 
 def main() -> None:
+    initialize_runtime_database()
     app = create_app()
     host = os.getenv("HOST", DEFAULT_HOST)
     port = int(os.getenv("PORT", str(DEFAULT_PORT)))
