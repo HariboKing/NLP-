@@ -21,6 +21,9 @@ from .seed_data import (
     SEED_EXERCISES,
 )
 
+FREE_PUBLIC_MODEL_SLUGS = ("metamodel",)
+FREE_PUBLIC_MODULE_TITLES = ("De kunst van magische taalpatronen",)
+
 try:
     import psycopg
     from psycopg.rows import dict_row
@@ -53,9 +56,17 @@ POSTGRES_ID_TABLES = {
     "responses",
     "module_quiz_sessions",
     "reviews",
+    "subscription_plans",
+    "user_subscriptions",
+    "plan_model_access",
+    "plan_module_access",
 }
 
 POSTGRES_RESET_TABLES = [
+    "plan_module_access",
+    "plan_model_access",
+    "user_subscriptions",
+    "subscription_plans",
     "reviews",
     "module_quiz_sessions",
     "responses",
@@ -479,6 +490,47 @@ def create_schema(connection) -> None:
             FOREIGN KEY (reviewer_user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS subscription_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            audience TEXT NOT NULL,
+            access_scope TEXT NOT NULL,
+            is_paid INTEGER NOT NULL DEFAULT 0,
+            price_label TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS user_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            plan_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ends_at TEXT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS plan_model_access (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            model_slug TEXT NOT NULL,
+            UNIQUE (plan_id, model_slug),
+            FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS plan_module_access (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            module_id INTEGER NOT NULL,
+            UNIQUE (plan_id, module_id),
+            FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL,
@@ -536,6 +588,8 @@ def apply_runtime_migrations(connection) -> None:
     backfill_account_partitions(connection)
     sync_reference_curriculum(connection)
     sync_demo_student_groups(connection)
+    sync_subscription_catalog(connection)
+    backfill_public_subscriptions(connection)
     connection.commit()
 
 
@@ -649,6 +703,129 @@ def create_user_account(
         ),
     )
     return cursor.lastrowid
+
+
+def get_plan_by_code(connection, code: str):
+    return connection.execute(
+        "SELECT * FROM subscription_plans WHERE code = ?",
+        (code,),
+    ).fetchone()
+
+
+def get_active_subscription(connection, user_id: int):
+    return connection.execute(
+        """
+        SELECT user_subscriptions.*, subscription_plans.code AS plan_code, subscription_plans.name AS plan_name,
+               subscription_plans.audience, subscription_plans.access_scope, subscription_plans.is_paid,
+               subscription_plans.price_label, subscription_plans.description
+        FROM user_subscriptions
+        JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id
+        WHERE user_subscriptions.user_id = ?
+          AND user_subscriptions.status = 'active'
+        ORDER BY user_subscriptions.started_at DESC, user_subscriptions.id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+
+
+def set_active_subscription(connection, user_id: int, plan_code: str):
+    plan = get_plan_by_code(connection, plan_code)
+    if not plan:
+        raise ValueError(f"Unknown subscription plan: {plan_code}")
+
+    current_active = connection.execute(
+        "SELECT id FROM user_subscriptions WHERE user_id = ? AND status = 'active'",
+        (user_id,),
+    ).fetchall()
+    for row in current_active:
+        connection.execute(
+            """
+            UPDATE user_subscriptions
+            SET status = 'replaced', ends_at = ?
+            WHERE id = ?
+            """,
+            (utc_now_iso(), row["id"]),
+        )
+
+    connection.execute(
+        """
+        INSERT INTO user_subscriptions (user_id, plan_id, status, started_at, ends_at, created_at)
+        VALUES (?, ?, 'active', ?, NULL, ?)
+        """,
+        (user_id, plan["id"], utc_now_iso(), utc_now_iso()),
+    )
+    return get_active_subscription(connection, user_id)
+
+
+def ensure_public_free_subscription(connection, user_id: int):
+    active_subscription = get_active_subscription(connection, user_id)
+    if active_subscription:
+        return active_subscription
+    return set_active_subscription(connection, user_id, "public_free")
+
+
+def activate_public_paid_subscription(connection, user_id: int):
+    return set_active_subscription(connection, user_id, "public_paid")
+
+
+def get_plan_model_access_slugs(connection, plan_id: int) -> set[str]:
+    return {
+        row["model_slug"]
+        for row in connection.execute(
+            "SELECT model_slug FROM plan_model_access WHERE plan_id = ?",
+            (plan_id,),
+        ).fetchall()
+    }
+
+
+def get_plan_module_access_ids(connection, plan_id: int) -> set[int]:
+    return {
+        int(row["module_id"])
+        for row in connection.execute(
+            "SELECT module_id FROM plan_module_access WHERE plan_id = ?",
+            (plan_id,),
+        ).fetchall()
+    }
+
+
+def export_account_access_rows(connection, organization_id: int | None = None):
+    where_clause = ""
+    parameters: tuple = ()
+    if organization_id is not None:
+        where_clause = "WHERE memberships.organization_id = ?"
+        parameters = (organization_id,)
+    return connection.execute(
+        f"""
+        SELECT users.id AS user_id,
+               users.email,
+               users.first_name,
+               users.last_name,
+               users.account_kind,
+               manager.email AS managed_by_email,
+               users.created_at,
+               COALESCE(
+                   GROUP_CONCAT(DISTINCT organizations.name || ' [' || memberships.role || ']'),
+                   ''
+               ) AS organization_access,
+               COALESCE(subscription_plans.code, '') AS subscription_plan,
+               COALESCE(user_subscriptions.status, '') AS subscription_status,
+               COALESCE(user_subscriptions.started_at, '') AS subscription_started_at,
+               COALESCE(subscription_plans.access_scope, '') AS access_scope
+        FROM users
+        LEFT JOIN users AS manager ON manager.id = users.managed_by_user_id
+        LEFT JOIN memberships ON memberships.user_id = users.id
+        LEFT JOIN organizations ON organizations.id = memberships.organization_id
+        LEFT JOIN user_subscriptions
+               ON user_subscriptions.user_id = users.id
+              AND user_subscriptions.status = 'active'
+        LEFT JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id
+        {where_clause}
+        GROUP BY users.id, manager.email, user_subscriptions.id, subscription_plans.id
+        ORDER BY users.created_at DESC, users.email
+        """,
+        parameters,
+    ).fetchall()
 
 
 def effective_score(attempt) -> float | None:
@@ -1197,3 +1374,125 @@ def backfill_account_partitions(connection) -> None:
         """,
         (admin_id,),
     )
+
+
+def sync_subscription_catalog(connection) -> None:
+    created_at = utc_now_iso()
+    plans = [
+        {
+            "code": "public_free",
+            "name": "Particulier gratis",
+            "audience": "public",
+            "access_scope": "public_limited",
+            "is_paid": 0,
+            "price_label": "Gratis",
+            "description": "Kennismaking met 1 model en 1 leerpad.",
+        },
+        {
+            "code": "public_paid",
+            "name": "Particulier volledig",
+            "audience": "public",
+            "access_scope": "public_full",
+            "is_paid": 1,
+            "price_label": "Betaald",
+            "description": "Volledige toegang tot alle publieke modellen en verdiepingspaden.",
+        },
+        {
+            "code": "organization_full",
+            "name": "Organisatie volledig",
+            "audience": "organization",
+            "access_scope": "organization_full",
+            "is_paid": 1,
+            "price_label": "Inbegrepen via organisatie",
+            "description": "Volledige toegang via een betalende organisatie.",
+        },
+    ]
+
+    for plan in plans:
+        existing = get_plan_by_code(connection, plan["code"])
+        if existing:
+            connection.execute(
+                """
+                UPDATE subscription_plans
+                SET name = ?, audience = ?, access_scope = ?, is_paid = ?, price_label = ?, description = ?
+                WHERE code = ?
+                """,
+                (
+                    plan["name"],
+                    plan["audience"],
+                    plan["access_scope"],
+                    plan["is_paid"],
+                    plan["price_label"],
+                    plan["description"],
+                    plan["code"],
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO subscription_plans (
+                    code, name, audience, access_scope, is_paid, price_label, description, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    plan["code"],
+                    plan["name"],
+                    plan["audience"],
+                    plan["access_scope"],
+                    plan["is_paid"],
+                    plan["price_label"],
+                    plan["description"],
+                    created_at,
+                ),
+            )
+
+    free_plan = get_plan_by_code(connection, "public_free")
+    if not free_plan:
+        return
+
+    connection.execute("DELETE FROM plan_model_access WHERE plan_id = ?", (free_plan["id"],))
+    for model_slug in FREE_PUBLIC_MODEL_SLUGS:
+        connection.execute(
+            "INSERT OR IGNORE INTO plan_model_access (plan_id, model_slug) VALUES (?, ?)",
+            (free_plan["id"], model_slug),
+        )
+
+    connection.execute("DELETE FROM plan_module_access WHERE plan_id = ?", (free_plan["id"],))
+    for module_title in FREE_PUBLIC_MODULE_TITLES:
+        module_row = connection.execute(
+            "SELECT id FROM modules WHERE title = ?",
+            (module_title,),
+        ).fetchone()
+        if module_row:
+            connection.execute(
+                "INSERT OR IGNORE INTO plan_module_access (plan_id, module_id) VALUES (?, ?)",
+                (free_plan["id"], module_row["id"]),
+            )
+
+
+def backfill_public_subscriptions(connection) -> None:
+    free_plan = get_plan_by_code(connection, "public_free")
+    if not free_plan:
+        return
+
+    public_users = connection.execute(
+        """
+        SELECT users.id
+        FROM users
+        WHERE users.account_kind = 'public'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM user_subscriptions
+              WHERE user_subscriptions.user_id = users.id
+                AND user_subscriptions.status = 'active'
+          )
+        """
+    ).fetchall()
+    for row in public_users:
+        connection.execute(
+            """
+            INSERT INTO user_subscriptions (user_id, plan_id, status, started_at, ends_at, created_at)
+            VALUES (?, ?, 'active', ?, NULL, ?)
+            """,
+            (row["id"], free_plan["id"], utc_now_iso(), utc_now_iso()),
+        )
