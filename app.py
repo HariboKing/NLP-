@@ -95,7 +95,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the NLP Trainer Support Platform.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", default=DEFAULT_PORT, type=int)
-    parser.add_argument("--reset-db", action="store_true", help="Reset the SQLite database before starting.")
+    parser.add_argument("--reset-db", action="store_true", help="Reset the configured database before starting.")
     parser.add_argument("--smoke-test", action="store_true", help="Run an internal smoke test and exit.")
     args = parser.parse_args()
 
