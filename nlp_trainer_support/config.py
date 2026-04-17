@@ -7,6 +7,8 @@ DATA_DIR = Path(os.getenv("APP_DATA_DIR", str(ROOT_DIR / "data")))
 STATIC_DIR = ROOT_DIR / "static"
 UPLOADS_DIR = Path(os.getenv("APP_UPLOADS_DIR", str(STATIC_DIR / "uploads")))
 DB_PATH = Path(os.getenv("APP_DB_PATH", str(DATA_DIR / "nlp_trainer_support.db")))
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DB_BACKEND = "postgres" if DATABASE_URL else "sqlite"
 
 APP_TITLE = "NLP Trainer Support Platform"
 DEFAULT_HOST = os.getenv("HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
