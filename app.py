@@ -8,6 +8,7 @@ from wsgiref.util import setup_testing_defaults
 
 from nlp_trainer_support import db
 from nlp_trainer_support.config import DEFAULT_HOST, DEFAULT_PORT
+from nlp_trainer_support.runtime_setup import initialize_runtime_database
 from nlp_trainer_support.web import create_app
 
 
@@ -50,7 +51,7 @@ class SimpleClient:
 
 
 def run_smoke_test() -> None:
-    db.initialize_database(reset=True)
+    initialize_runtime_database(reset=True)
     app = create_app()
 
     guest = SimpleClient(app)
@@ -103,7 +104,7 @@ def main() -> None:
         run_smoke_test()
         return
 
-    db.initialize_database(reset=args.reset_db)
+    initialize_runtime_database(reset=args.reset_db)
     app = create_app()
     with make_server(args.host, args.port, app) as server:
         print(f"Server draait op http://{args.host}:{args.port}")
