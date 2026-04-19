@@ -305,6 +305,8 @@ def delete_user_account(connection, user_id: int) -> None:
 
 
 def delete_organization(connection, organization_id: int, current_request_id: int, decided_by_user_id: int) -> None:
+    connection.execute("DELETE FROM resources WHERE organization_id = ?", (organization_id,))
+
     members = connection.execute(
         """
         SELECT users.id,
