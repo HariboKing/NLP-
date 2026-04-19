@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import mimetypes
 import re
@@ -10,10 +11,11 @@ from datetime import timedelta
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from html import escape
+from io import StringIO
 from pathlib import Path
 from urllib.parse import parse_qs, quote, quote_plus, unquote
 
-from . import db
+from . import db, deletion_requests
 from .config import APP_TITLE, STATIC_DIR, UPLOADS_DIR
 from .scoring import score_submission
 
@@ -374,6 +376,78 @@ MODEL_PAGES = [
 MODEL_PAGE_LOOKUP = {model["slug"]: model for model in MODEL_PAGES}
 
 
+def combine_unique_paragraphs(*groups: list[str]) -> list[str]:
+    combined: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for paragraph in group:
+            text = str(paragraph).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            combined.append(text)
+    return combined
+
+
+def build_model_information_blocks(model: dict) -> list[dict[str, list[str] | str]]:
+    blocks = model.get("blocks", [])
+    existing_groups = [block.get("paragraphs", []) for block in blocks]
+    while len(existing_groups) < 3:
+        existing_groups.append([])
+
+    return [
+        {
+            "heading": "Wat houdt het model in?",
+            "paragraphs": combine_unique_paragraphs(
+                [model.get("intro", "")],
+                existing_groups[0],
+                existing_groups[1],
+            ),
+        },
+        {
+            "heading": "Wie ontwikkelde(n) het model en waarom?",
+            "paragraphs": combine_unique_paragraphs(
+                model.get(
+                    "history_paragraphs",
+                    [
+                        f"Voeg hier achtergrondinformatie toe over de ontwikkelaar of ontwikkelaars van {model['title']}, de context waarin het model ontstond en de vragen die ermee beantwoord moesten worden.",
+                    ],
+                ),
+            ),
+        },
+        {
+            "heading": "Wat kan je met het model?",
+            "paragraphs": combine_unique_paragraphs(
+                existing_groups[2],
+                model.get(
+                    "application_paragraphs",
+                    [
+                        f"Gebruik dit vak om uit te werken hoe {model['title']} in gesprekken, analyses, oefeningen of reflectie wordt toegepast, inclusief concrete voorbeelden.",
+                    ],
+                ),
+            ),
+        },
+        {
+            "heading": "Meer informatie",
+            "paragraphs": combine_unique_paragraphs(
+                model.get(
+                    "reference_paragraphs",
+                    [
+                        f"Verwijs hier naar reader, map, hoofdstukken, boeken en andere bronnen waarin {model['title']} verder wordt toegelicht.",
+                    ],
+                ),
+            ),
+        },
+    ]
+
+
+def resource_bucket(resource_type: str) -> str:
+    normalized = (resource_type or "").strip().lower()
+    if normalized in {"literature", "book", "boek", "verdiepende_literatuur"}:
+        return "literature"
+    return "reading"
+
+
 @dataclass
 class UploadedFile:
     filename: str
@@ -520,6 +594,9 @@ class WebApp:
                     return self.handle_register(connection, request)
                 return self.html("Account aanmaken", self.render_register(), context)
 
+            if request.path == "/pricing":
+                return self.pricing_page(connection, request, context)
+
             if request.path == "/logout":
                 db.destroy_session(connection, request.cookies.get("session_token"))
                 return self.redirect("/login?notice=" + quote_plus("Je bent uitgelogd."))
@@ -542,9 +619,18 @@ class WebApp:
             if request.path == "/settings/theme":
                 return self.theme_settings(connection, request, context)
 
+            if request.path == "/exports/accounts.csv":
+                return self.account_export_csv(connection, context)
+
+            if request.path == "/deletion-requests":
+                return self.deletion_request_page(connection, request, context)
+
+            if request.path == "/account/deactivate":
+                return self.account_deactivation_page(connection, request, context)
+
             model_match = re.fullmatch(r"/models/([a-z0-9-]+)", request.path)
             if model_match:
-                return self.model_page(context, model_match.group(1))
+                return self.model_page(connection, context, model_match.group(1))
 
             module_quiz_complete_match = re.fullmatch(r"/modules/(\d+)/quiz/complete", request.path)
             if module_quiz_complete_match:
@@ -614,6 +700,13 @@ class WebApp:
         if not active_membership and memberships:
             active_membership = memberships[0]
 
+        subscription = None
+        if session["account_kind"] == "public":
+            subscription = db.ensure_public_free_subscription(connection, session["user_id"])
+            connection.commit()
+        else:
+            subscription = db.get_active_subscription(connection, session["user_id"])
+
         theme = self.default_theme()
         if active_membership:
             theme_row = connection.execute(
@@ -628,6 +721,7 @@ class WebApp:
             "session": dict(session),
             "memberships": [dict(row) for row in memberships],
             "active_membership": dict(active_membership) if active_membership else None,
+            "subscription": dict(subscription) if subscription else None,
             "theme": theme,
             "notice": request.get("notice"),
         }
@@ -755,6 +849,8 @@ class WebApp:
 
         links = ["<a class='nav-link' href='/dashboard'>Dashboard</a>"]
         active = context["active_membership"]
+        if self.is_platform_owner(context):
+            links.append("<a class='nav-link' href='/deletion-requests'>Verwijderverzoeken</a>")
         if active and active["role"] in {"trainer", "organization_admin"}:
             links.append("<a class='nav-link' href='/assignments/new'>Nieuwe opdracht</a>")
             links.append("<a class='nav-link' href='/reviews'>Reviews</a>")
@@ -762,6 +858,8 @@ class WebApp:
             links.append("<a class='nav-link' href='/settings/theme'>Branding</a>")
         if active:
             links.append("<a class='nav-link' href='/archive'>Archief</a>")
+        elif self.is_public_user(context):
+            links.append("<a class='nav-link' href='/pricing'>Abonnement</a>")
         links.append("<a class='nav-link' href='/logout'>Logout</a>")
         return "<nav class='topnav'>" + "".join(links) + "</nav>"
 
@@ -795,6 +893,10 @@ class WebApp:
         active = context["active_membership"]
         return bool(active and active["role"] in allowed)
 
+    def is_platform_owner(self, context: dict) -> bool:
+        user = context.get("user")
+        return bool(user and user.get("is_platform_admin") and not context.get("active_membership"))
+
     def active_organization_id(self, context: dict) -> int | None:
         active = context["active_membership"]
         if not active:
@@ -827,6 +929,324 @@ class WebApp:
                 return self.belongs_to_active_organization(context, attempt, "assignment_organization_id")
             return self.user_belongs_to_active_organization(connection, context, attempt["user_id"])
         return False
+
+    def is_public_user(self, context: dict) -> bool:
+        user = context.get("user")
+        return bool(user and not context.get("active_membership") and user.get("account_kind") == "public")
+
+    def public_has_full_access(self, context: dict) -> bool:
+        subscription = context.get("subscription")
+        return bool(
+            self.is_public_user(context)
+            and subscription
+            and subscription.get("status") == "active"
+            and subscription.get("access_scope") == "public_full"
+        )
+
+    def public_allowed_model_slugs(self, connection, context: dict) -> set[str]:
+        if not self.is_public_user(context) or self.public_has_full_access(context):
+            return {model["slug"] for model in MODEL_PAGES}
+        subscription = context.get("subscription")
+        if not subscription:
+            return set()
+        return db.get_plan_model_access_slugs(connection, int(subscription["plan_id"]))
+
+    def public_allowed_module_ids(self, connection, context: dict) -> set[int]:
+        if not self.is_public_user(context):
+            return set()
+        if self.public_has_full_access(context):
+            rows = connection.execute("SELECT id FROM modules").fetchall()
+            return {int(row["id"]) for row in rows}
+        subscription = context.get("subscription")
+        if not subscription:
+            return set()
+        return db.get_plan_module_access_ids(connection, int(subscription["plan_id"]))
+
+    def public_can_access_model(self, connection, context: dict, model_slug: str) -> bool:
+        if not self.is_public_user(context):
+            return True
+        return model_slug in self.public_allowed_model_slugs(connection, context)
+
+    def public_can_access_module(self, connection, context: dict, module_id: int) -> bool:
+        if not self.is_public_user(context):
+            return True
+        return module_id in self.public_allowed_module_ids(connection, context)
+
+    def upgrade_required_page(self, context: dict, item_kind: str, item_name: str) -> Response:
+        body = f"""
+        <section class='hero compact'>
+          <div>
+            <span class='eyebrow'>Upgrade nodig</span>
+            <h1>Volledige toegang vereist</h1>
+            <p>Je gratis particuliere account bevat alleen een kennismaking. {h(item_kind)} <strong>{h(item_name)}</strong> valt onder volledige toegang.</p>
+          </div>
+          <div class='actions'>
+            <a class='button button-primary' href='/pricing'>Volledige toegang ontgrendelen</a>
+            <a class='button button-secondary' href='/dashboard'>Terug naar dashboard</a>
+          </div>
+        </section>
+        <section class='grid two-up'>
+          <article class='panel'>
+            <h2>Gratis account</h2>
+            <p>1 model, 1 leerpad en oefenen binnen die kennismakingsinhoud.</p>
+          </article>
+          <article class='panel inset'>
+            <h2>Volledig particulier account</h2>
+            <p>Alle modellen, alle verdiepingspaden en alle publieke quizflows zonder organisatie-opdrachten.</p>
+          </article>
+        </section>
+        """
+        return self.html("Upgrade nodig", body, context, status="402 Payment Required")
+
+    def account_export_csv(self, connection, context: dict) -> Response:
+        if context["user"] and context["user"].get("is_platform_admin") and not context.get("active_membership"):
+            rows = db.export_account_access_rows(connection)
+            filename = "platform-account-access.csv"
+        elif self.require_role(context, {"organization_admin"}):
+            organization_id = context["active_membership"]["organization_id"]
+            rows = db.export_account_access_rows(connection, organization_id)
+            filename = f"organization-{organization_id}-account-access.csv"
+        else:
+            return self.forbidden(context)
+
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "user_id",
+                "email",
+                "first_name",
+                "last_name",
+                "account_kind",
+                "managed_by_email",
+                "organization_access",
+                "subscription_plan",
+                "subscription_status",
+                "subscription_started_at",
+                "access_scope",
+                "created_at",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row["user_id"],
+                    row["email"],
+                    row["first_name"],
+                    row["last_name"],
+                    row["account_kind"],
+                    row["managed_by_email"],
+                    row["organization_access"],
+                    row["subscription_plan"],
+                    row["subscription_status"],
+                    row["subscription_started_at"],
+                    row["access_scope"],
+                    row["created_at"],
+                ]
+            )
+        body = ("\ufeff" + output.getvalue()).encode("utf-8")
+        return Response(
+            "200 OK",
+            body,
+            [
+                ("Content-Type", "text/csv; charset=utf-8"),
+                ("Content-Disposition", f"attachment; filename={filename}"),
+            ],
+        )
+
+    def account_deactivation_page(self, connection, request: Request, context: dict) -> Response:
+        if not context["user"]:
+            return self.redirect("/login")
+        if context["user"].get("is_platform_admin"):
+            return self.forbidden(context, "Het owner-account kan niet worden gedeactiveerd.")
+
+        if request.method == "POST":
+            if not self.verify_csrf(request, context):
+                return self.forbidden(context, "Ongeldige CSRF token.")
+
+            decision = request.get("decision")
+            if decision == "no":
+                return self.redirect("/dashboard")
+            if decision != "yes":
+                return self.redirect("/account/deactivate")
+
+            db.deactivate_user_account(connection, int(context["user"]["user_id"]))
+            connection.commit()
+            response = self.redirect("/login?notice=" + quote_plus("Account succesvol gedeactiveerd en verwijderd."))
+            response.headers.append(("Set-Cookie", "session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"))
+            return response
+
+        body = (
+            "<section class='hero compact'><div><span class='eyebrow'>Account</span><h1>Account deactiveren</h1>"
+            "<p>Na bevestiging wordt je account direct gedeactiveerd. Je wordt uitgelogd en kunt daarna niet meer inloggen met dit account.</p></div>"
+            "<div class='actions'><a class='button button-secondary' href='/dashboard'>Terug naar dashboard</a></div></section>"
+            "<section class='panel form-panel'>"
+            "<h2>Weet je het zeker?</h2>"
+            "<p class='helper'>Kies <strong>Ja</strong> om je account direct te deactiveren. Kies <strong>Nee</strong> om terug te gaan naar je homepagina.</p>"
+            f"<form method='post' action='/account/deactivate' style='display:flex; gap:0.75rem; flex-wrap:wrap;'>"
+            f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+            "<button class='button button-primary' type='submit' name='decision' value='yes'>Ja</button>"
+            "<button class='button button-secondary' type='submit' name='decision' value='no'>Nee</button>"
+            "</form>"
+            "</section>"
+        )
+        return self.html("Account deactiveren", body, context)
+
+    def deletion_request_page(self, connection, request: Request, context: dict) -> Response:
+        if not context["user"]:
+            return self.redirect("/login")
+
+        if request.method == "GET":
+            if self.is_platform_owner(context):
+                return self.platform_deletion_request_dashboard(connection, context)
+            return self.redirect("/dashboard")
+
+        if not self.verify_csrf(request, context):
+            return self.forbidden(context, "Ongeldige CSRF token.")
+
+        action = request.get("action")
+        try:
+            if action == "request_account_deletion":
+                return self.redirect("/account/deactivate")
+
+            if action == "request_organization_deletion":
+                if not self.require_role(context, {"organization_admin"}):
+                    return self.forbidden(context)
+                deletion_requests.create_organization_deletion_request(
+                    connection,
+                    organization_id=context["active_membership"]["organization_id"],
+                    requested_by_user_id=context["user"]["user_id"],
+                    reason=request.get("reason").strip(),
+                )
+                connection.commit()
+                return self.redirect("/dashboard?notice=" + quote_plus("Het organisatieverwijderverzoek is ingediend. Alleen de eigenaar kan dit goedkeuren of afwijzen."))
+
+            if action == "approve_deletion_request":
+                if not self.is_platform_owner(context):
+                    return self.forbidden(context)
+                deletion_requests.approve_request(
+                    connection,
+                    request_id=int(request.get("request_id")),
+                    decided_by_user_id=context["user"]["user_id"],
+                    note=request.get("decision_note").strip(),
+                )
+                connection.commit()
+                return self.redirect("/deletion-requests?notice=" + quote_plus("Verwijderverzoek goedgekeurd en uitgevoerd."))
+
+            if action == "deny_deletion_request":
+                if not self.is_platform_owner(context):
+                    return self.forbidden(context)
+                deletion_requests.deny_request(
+                    connection,
+                    request_id=int(request.get("request_id")),
+                    decided_by_user_id=context["user"]["user_id"],
+                    note=request.get("decision_note").strip(),
+                )
+                connection.commit()
+                return self.redirect("/deletion-requests?notice=" + quote_plus("Verwijderverzoek afgewezen."))
+        except ValueError as exc:
+            target = "/deletion-requests" if self.is_platform_owner(context) else "/dashboard"
+            return self.redirect(target + "?notice=" + quote_plus(str(exc)))
+
+        return self.not_found(context)
+
+    def render_account_deletion_panels(self, connection, context: dict) -> str:
+        user = context.get("user")
+        if not user or user.get("is_platform_admin"):
+            return ""
+
+        account_panel = (
+            "<article class='panel inset'>"
+            "<h2>Account deactiveren</h2>"
+            "<p class='helper'>Deactiveer je account direct via een bevestigingsscherm. Daarna word je uitgelogd en is dit account niet meer bruikbaar.</p>"
+            "<div class='actions'>"
+            "<a class='button button-secondary' href='/account/deactivate'>Account deactiveren</a>"
+            "</div>"
+            "</article>"
+        )
+
+        organization_panel = ""
+        if self.require_role(context, {"organization_admin"}):
+            active = context["active_membership"]
+            pending_org_request = deletion_requests.get_pending_organization_request(
+                connection,
+                int(active["organization_id"]),
+            )
+            organization_panel = (
+                "<article class='panel inset'>"
+                "<h2>Organisatieverwijdering</h2>"
+                f"<p class='helper'>Voor organisatie <strong>{h(active['organization_name'])}</strong> staat sinds {h((pending_org_request['created_at'] or '').split('T')[0])} een open verwijderverzoek. Alleen de eigenaar kan dit goedkeuren of afwijzen.</p>"
+                f"<p><strong>Status:</strong> {h(pending_org_request['status'])}</p>"
+                "</article>"
+                if pending_org_request
+                else (
+                    "<article class='panel form-panel'>"
+                    "<h2>Organisatieverwijdering aanvragen</h2>"
+                    "<p class='helper'>Na goedkeuring worden organisatiegegevens, groepen, opdrachten en gekoppelde beheerde accounts verwijderd.</p>"
+                    f"<form method='post' action='/deletion-requests'>"
+                    f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+                    "<input type='hidden' name='action' value='request_organization_deletion'>"
+                    "<label class='field'><span>Reden (optioneel)</span><textarea name='reason' rows='4' placeholder='Waarom moet deze organisatie worden verwijderd?'></textarea></label>"
+                    "<button class='button button-secondary' type='submit'>Organisatieverwijdering aanvragen</button>"
+                    "</form>"
+                    "</article>"
+                )
+            )
+
+        panels = [account_panel]
+        if organization_panel:
+            panels.append(organization_panel)
+        return "<section class='grid two-up'>" + "".join(panels) + "</section>"
+
+    def platform_deletion_request_dashboard(self, connection, context: dict) -> Response:
+        pending_requests = deletion_requests.list_requests(connection, status="pending")
+        recent_requests = deletion_requests.list_requests(connection, limit=20)
+        pending_rows = [
+            [
+                h("Account" if row["request_type"] == "user" else "Organisatie"),
+                h(row["target_label"]),
+                h(f"{row['requester_name_snapshot']} ({row['requester_email_snapshot']})"),
+                h(row["reason"] or "-"),
+                h((row["created_at"] or "").replace("T", " ")),
+                (
+                    f"<form method='post' action='/deletion-requests' style='display:flex; gap:0.5rem; flex-wrap:wrap;'>"
+                    f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+                    f"<input type='hidden' name='request_id' value='{row['id']}'>"
+                    "<input type='hidden' name='decision_note' value=''>"
+                    "<button class='button button-primary small' type='submit' name='action' value='approve_deletion_request'>Goedkeuren</button>"
+                    "<button class='button button-secondary small' type='submit' name='action' value='deny_deletion_request'>Afwijzen</button>"
+                    "</form>"
+                ),
+            ]
+            for row in pending_requests
+        ]
+        recent_rows = [
+            [
+                h("Account" if row["request_type"] == "user" else "Organisatie"),
+                h(row["target_label"]),
+                h(row["status"]),
+                h((row["created_at"] or "").replace("T", " ")),
+                h((row["decided_at"] or "").replace("T", " ") if row["decided_at"] else "-"),
+            ]
+            for row in recent_requests
+            if row["status"] != "pending"
+        ]
+        body = [
+            "<section class='hero compact'><div><span class='eyebrow'>Platform view</span><h1>Verwijderverzoeken</h1><p>Alleen de eigenaar kan hier account- en organisatieverwijderingen goedkeuren of afwijzen.</p></div><div class='actions'><a class='button button-secondary' href='/dashboard'>Terug naar dashboard</a></div></section>",
+            self.metrics_row(
+                [
+                    ("Openstaand", str(len(pending_requests))),
+                    ("Recent afgehandeld", str(len(recent_rows))),
+                ]
+            ),
+            "<section class='panel'><h2>Openstaande verzoeken</h2>"
+            + self.render_table(["Type", "Doel", "Aangevraagd door", "Reden", "Datum", "Actie"], pending_rows)
+            + "</section>",
+            "<section class='panel'><h2>Recente besluiten</h2>"
+            + self.render_table(["Type", "Doel", "Status", "Aangevraagd", "Afgehandeld"], recent_rows)
+            + "</section>",
+        ]
+        return self.html("Verwijderverzoeken", "".join(body), context)
 
     def verify_csrf(self, request: Request, context: dict) -> bool:
         session = context.get("session")
@@ -885,7 +1305,7 @@ class WebApp:
         <section class="auth-shell">
           <form class="panel auth-card" method="post" action="/register">
             <h1>Publiek account aanmaken</h1>
-            <p>Met dit account krijg je toegang tot modellen en verdiepingspaden, maar niet tot trainer-opdrachten of organisatiegroepen.</p>
+            <p>Met dit account start je gratis met 1 model en 1 verdiepingspad: <strong>Metamodel</strong> en <strong>De kunst van magische taalpatronen</strong>. Daarna kun je volledige particuliere toegang activeren.</p>
             <label class="field">
               <span>Voornaam</span>
               <input type="text" name="first_name" required>
@@ -910,7 +1330,7 @@ class WebApp:
 
     def handle_login(self, connection, request: Request) -> Response:
         user = connection.execute(
-            "SELECT * FROM users WHERE email = ?",
+            "SELECT * FROM users WHERE email = ? AND is_active = 1",
             (request.get("email").strip().lower(),),
         ).fetchone()
         if not user or not db.verify_password(request.get("password"), user["password_hash"]):
@@ -954,8 +1374,9 @@ class WebApp:
                 last_name=last_name,
                 account_kind="public",
             )
+            db.ensure_public_free_subscription(connection, user_id)
             connection.commit()
-        except sqlite3.IntegrityError:
+        except db.IntegrityError:
             context = {
                 "user": None,
                 "session": None,
@@ -1148,7 +1569,7 @@ class WebApp:
                 """
             ).fetchall()
             body = [
-                "<section class='hero compact'><div><span class='eyebrow'>Platform view</span><h1>Platform overzicht</h1><p>Gebruik dit scherm om tenants en demo-data te controleren.</p></div></section>",
+                "<section class='hero compact'><div><span class='eyebrow'>Platform view</span><h1>Platform overzicht</h1><p>Gebruik dit scherm om tenants en demo-data te controleren.</p></div><div class='actions'><a class='button button-primary' href='/exports/accounts.csv'>CSV export (Excel)</a></div></section>",
                 self.metrics_row(
                     [
                         ("Organisaties", str(len(organizations))),
@@ -1211,7 +1632,7 @@ class WebApp:
             SELECT modules.id, modules.title,
                    COUNT(DISTINCT exercises.id) AS total_exercises,
                    COUNT(DISTINCT attempts.exercise_id) AS attempted_exercises,
-                   ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+                   AVG(COALESCE(attempts.manual_score, attempts.auto_score)) AS avg_score
             FROM modules
             LEFT JOIN exercises ON exercises.module_id = modules.id AND exercises.status = 'published'
             LEFT JOIN attempts ON attempts.exercise_id = exercises.id AND attempts.user_id = ?
@@ -1276,17 +1697,22 @@ class WebApp:
             + "<article class='panel'><h2>Verdiepingspaden</h2>"
             + self.render_table(["Leerpad", "Geoefend", "Gemiddelde score"], module_rows)
             + "</article></section>",
+            self.render_account_deletion_panels(connection, context),
         ]
         return self.html("Student dashboard", "".join(content), context)
 
     def public_student_dashboard(self, connection, context: dict) -> Response:
         user_id = context["user"]["user_id"]
+        allowed_model_slugs = self.public_allowed_model_slugs(connection, context)
+        allowed_module_ids = self.public_allowed_module_ids(connection, context)
+        full_access = self.public_has_full_access(context)
+        subscription = context.get("subscription") or {}
         modules = connection.execute(
             """
             SELECT modules.id, modules.title,
                    COUNT(DISTINCT exercises.id) AS total_exercises,
                    COUNT(DISTINCT attempts.exercise_id) AS attempted_exercises,
-                   ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+                   AVG(COALESCE(attempts.manual_score, attempts.auto_score)) AS avg_score
             FROM modules
             LEFT JOIN exercises ON exercises.module_id = modules.id AND exercises.status = 'published'
             LEFT JOIN attempts ON attempts.exercise_id = exercises.id AND attempts.user_id = ?
@@ -1296,26 +1722,138 @@ class WebApp:
             (user_id,),
         ).fetchall()
 
-        model_rows = [[f"<a href='/models/{model['slug']}'>{h(model['title'])}</a>"] for model in MODEL_PAGES]
+        model_rows = []
+        for model in MODEL_PAGES:
+            if model["slug"] in allowed_model_slugs:
+                model_rows.append(
+                    [
+                        f"<a href='/models/{model['slug']}'>{h(model['title'])}</a>",
+                        "Open",
+                    ]
+                )
+            else:
+                model_rows.append(
+                    [
+                        h(model["title"]),
+                        "<a class='button button-secondary small' href='/pricing'>Upgrade nodig</a>",
+                    ]
+                )
         module_rows = [
             [
-                f"<a href='/modules/{module['id']}'>{h(module['title'])}</a>",
+                f"<a href='/modules/{module['id']}'>{h(module['title'])}</a>"
+                if module["id"] in allowed_module_ids
+                else h(module["title"]),
                 h(f"{module['attempted_exercises']}/{module['total_exercises']}"),
                 format_score(module["avg_score"]),
+                "Open"
+                if module["id"] in allowed_module_ids
+                else "<a class='button button-secondary small' href='/pricing'>Upgrade nodig</a>",
             ]
             for module in modules
         ]
+        upgrade_panel = ""
+        if not full_access:
+            upgrade_panel = (
+                "<section class='panel'>"
+                "<h2>Gratis kennismakingsaccount</h2>"
+                "<p>Je kunt nu 1 model en 1 leerpad volledig gebruiken: <strong>Metamodel</strong> en <strong>De kunst van magische taalpatronen</strong>. "
+                "Na betaling ontgrendel je alle publieke modellen, leerpaden en quizflows.</p>"
+                "<div class='actions'><a class='button button-primary' href='/pricing'>Volledige toegang ontgrendelen</a></div>"
+                "</section>"
+            )
         content = [
-            f"<section class='hero compact'><div><span class='eyebrow'>Publieke leeromgeving</span><h1>Welkom, {h(context['user']['first_name'])}</h1><p>Je gebruikt een publiek account. Je hebt toegang tot modellen en verdiepingspaden, maar niet tot organisatie-opdrachten van trainers.</p></div></section>",
+            f"<section class='hero compact'><div><span class='eyebrow'>Publieke leeromgeving</span><h1>Welkom, {h(context['user']['first_name'])}</h1><p>Je gebruikt een publiek account. Je hebt toegang tot modellen en verdiepingspaden, maar niet tot organisatie-opdrachten van trainers.</p></div><div class='actions'><a class='button button-secondary' href='/pricing'>{h(subscription.get('plan_name', 'Abonnement bekijken'))}</a></div></section>",
+            self.metrics_row(
+                [
+                    ("Abonnement", subscription.get("plan_name", "Nog niet ingesteld")),
+                    ("Modellen open", str(len(allowed_model_slugs))),
+                    ("Leerpaden open", str(len(allowed_module_ids))),
+                ]
+            ),
+            upgrade_panel,
             "<section class='grid two-up dashboard-split'>"
             + "<article class='panel'><h2>Modellen overzicht</h2>"
-            + self.render_table(["Model"], model_rows)
+            + self.render_table(["Model", "Toegang"], model_rows)
             + "</article>"
             + "<article class='panel'><h2>Verdiepingspaden</h2>"
-            + self.render_table(["Leerpad", "Geoefend", "Gemiddelde score"], module_rows)
+            + self.render_table(["Leerpad", "Geoefend", "Gemiddelde score", "Toegang"], module_rows)
             + "</article></section>",
+            self.render_account_deletion_panels(connection, context),
         ]
         return self.html("Publieke leeromgeving", "".join(content), context)
+
+    def pricing_page(self, connection, request: Request, context: dict) -> Response:
+        if not context["user"]:
+            body = """
+            <section class='hero compact'>
+              <div>
+                <span class='eyebrow'>Abonnement</span>
+                <h1>Publieke toegang uitbreiden</h1>
+                <p>Maak eerst een publiek account aan om je gratis kennismakingsomgeving te starten. Daarna kun je volledige particuliere toegang activeren.</p>
+              </div>
+              <div class='actions'>
+                <a class='button button-primary' href='/register'>Publiek account aanmaken</a>
+                <a class='button button-secondary' href='/login'>Login</a>
+              </div>
+            </section>
+            """
+            return self.html("Abonnement", body, context)
+
+        if context.get("active_membership"):
+            body = """
+            <section class='hero compact'>
+              <div>
+                <span class='eyebrow'>Abonnement</span>
+                <h1>Organisatietoegang actief</h1>
+                <p>Deze omgeving valt onder een betalende organisatie. Daarom is alle inhoud voor dit account al volledig toegankelijk.</p>
+              </div>
+              <div class='actions'><a class='button button-secondary' href='/dashboard'>Terug naar dashboard</a></div>
+            </section>
+            """
+            return self.html("Abonnement", body, context)
+
+        if request.method == "POST":
+            if not self.verify_csrf(request, context):
+                return self.forbidden(context, "Ongeldige CSRF token.")
+            db.activate_public_paid_subscription(connection, context["user"]["user_id"])
+            connection.commit()
+            return self.redirect("/dashboard?notice=" + quote_plus("Volledige particuliere toegang is geactiveerd."))
+
+        subscription = context.get("subscription") or {}
+        full_access = self.public_has_full_access(context)
+        action_block = (
+            "<p class='helper'>Je particuliere volledige toegang is al actief.</p>"
+            if full_access
+            else (
+                f"<form method='post' action='/pricing'>"
+                f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+                "<button class='button button-primary' type='submit'>Demo betaling afronden</button>"
+                "</form>"
+            )
+        )
+        body = f"""
+        <section class='hero compact'>
+          <div>
+            <span class='eyebrow'>Abonnement</span>
+            <h1>Particuliere toegang</h1>
+            <p>Gratis particuliere accounts starten met 1 model en 1 leerpad. Volledige particuliere toegang ontgrendelt alle publieke modellen, verdiepingspaden en quizflows.</p>
+          </div>
+          <div class='actions'><a class='button button-secondary' href='/dashboard'>Terug naar dashboard</a></div>
+        </section>
+        {self.metrics_row([('Huidig plan', subscription.get('plan_name', 'Onbekend')), ('Status', subscription.get('status', 'onbekend')), ('Scope', subscription.get('access_scope', 'onbekend'))])}
+        <section class='grid two-up'>
+          <article class='panel'>
+            <h2>Gratis kennismaking</h2>
+            <p>Toegang tot <strong>Metamodel</strong> en <strong>De kunst van magische taalpatronen</strong>, inclusief oefenen binnen dat leerpad.</p>
+          </article>
+          <article class='panel inset'>
+            <h2>Volledige particuliere toegang</h2>
+            <p>Alle modellen, alle verdiepingspaden en alle publieke oefen- en quizflows.</p>
+            {action_block}
+          </article>
+        </section>
+        """
+        return self.html("Abonnement", body, context)
 
     def model_image_url(self, image_stem: str) -> tuple[str | None, str]:
         image_dir = STATIC_DIR / MODEL_IMAGE_DIR_NAME
@@ -1326,10 +1864,12 @@ class WebApp:
                 return quote(f"/static/{relative_path}", safe="/"), candidate.name
         return None, f"{image_stem}.png"
 
-    def model_page(self, context: dict, model_slug: str) -> Response:
+    def model_page(self, connection, context: dict, model_slug: str) -> Response:
         model = MODEL_PAGE_LOOKUP.get(model_slug)
         if not model:
             return self.not_found(context)
+        if not self.public_can_access_model(connection, context, model_slug):
+            return self.upgrade_required_page(context, "Model", model["title"])
 
         image_url, expected_filename = self.model_image_url(model["image_stem"])
         if image_url:
@@ -1355,7 +1895,7 @@ class WebApp:
             f"<h2>{h(block['heading'])}</h2>"
             + "".join(f"<p>{h(paragraph)}</p>" for paragraph in block["paragraphs"])
             + "</article>"
-            for block in model["blocks"]
+            for block in build_model_information_blocks(model)
         )
 
         content = [
@@ -1414,7 +1954,7 @@ class WebApp:
             SELECT student_groups.id, student_groups.name,
                    COUNT(DISTINCT student_group_members.user_id) AS member_count,
                    COUNT(DISTINCT attempts.id) AS attempt_count,
-                   ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+                   AVG(COALESCE(attempts.manual_score, attempts.auto_score)) AS avg_score
             FROM student_groups
             LEFT JOIN student_group_members ON student_group_members.group_id = student_groups.id
             LEFT JOIN attempts ON attempts.user_id = student_group_members.user_id
@@ -1429,7 +1969,7 @@ class WebApp:
             """
             SELECT users.id, users.first_name, users.last_name, users.created_at,
                    COUNT(DISTINCT attempts.id) AS attempt_count,
-                   ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+                   AVG(COALESCE(attempts.manual_score, attempts.auto_score)) AS avg_score
             FROM memberships
             JOIN users ON users.id = memberships.user_id
             LEFT JOIN attempts ON attempts.user_id = users.id
@@ -1459,7 +1999,7 @@ class WebApp:
                     """
                     SELECT users.id, users.first_name, users.last_name,
                            COUNT(DISTINCT attempts.id) AS attempt_count,
-                           ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+                           AVG(COALESCE(attempts.manual_score, attempts.auto_score)) AS avg_score
                     FROM student_group_members
                     JOIN users ON users.id = student_group_members.user_id
                     LEFT JOIN attempts ON attempts.user_id = users.id
@@ -1546,6 +2086,7 @@ class WebApp:
             + "<article class='panel inset'><h2>Nieuwe accounts afgelopen 6 maanden</h2>"
             + self.render_table(["Student", "Aangemaakt", "Pogingen", "Gemiddelde"], recent_student_rows)
             + "</article></section>",
+            self.render_account_deletion_panels(connection, context),
         ]
         return self.html("Trainer dashboard", "".join(content), context)
 
@@ -1579,7 +2120,7 @@ class WebApp:
                         (user_id, active["organization_id"], "student", db.utc_now_iso()),
                     )
                     connection.commit()
-                except sqlite3.IntegrityError:
+                except db.IntegrityError:
                     return self.redirect("/dashboard?notice=" + quote_plus("Dit e-mailadres bestaat al."))
                 return self.redirect("/dashboard?notice=" + quote_plus("Studentaccount aangemaakt."))
 
@@ -1616,7 +2157,7 @@ class WebApp:
                                 (group_id, member_id),
                             )
                     connection.commit()
-                except sqlite3.IntegrityError:
+                except db.IntegrityError:
                     return self.redirect("/dashboard?notice=" + quote_plus("Deze groep bestaat al."))
                 return self.redirect("/dashboard?notice=" + quote_plus("Groep aangemaakt."))
 
@@ -1664,7 +2205,7 @@ class WebApp:
             for student in managed_students
         )
         body = [
-            "<section class='hero compact'><div><span class='eyebrow'>Organization admin</span><h1>Tenant beheer</h1><p>Beheer alleen organisatieaccounts, maak beheerde studenten aan en bundel die in groepen. Publieke accounts blijven volledig buiten dit overzicht.</p></div><div class='actions'><a class='button button-primary' href='/settings/theme'>Branding aanpassen</a></div></section>",
+            "<section class='hero compact'><div><span class='eyebrow'>Organization admin</span><h1>Tenant beheer</h1><p>Beheer alleen organisatieaccounts, maak beheerde studenten aan en bundel die in groepen. Publieke accounts blijven volledig buiten dit overzicht.</p></div><div class='actions'><a class='button button-primary' href='/settings/theme'>Branding aanpassen</a><a class='button button-secondary' href='/exports/accounts.csv'>CSV export (Excel)</a></div></section>",
             self.metrics_row(
                 [
                     ("Gebruikers", str(len(memberships))),
@@ -1724,6 +2265,7 @@ class WebApp:
                 ],
             )
             + "</section>",
+            self.render_account_deletion_panels(connection, context),
         ]
         return self.html("Organization dashboard", "".join(body), context)
 
@@ -1781,11 +2323,88 @@ class WebApp:
         ).fetchone()
         if not module:
             return self.not_found(context)
+        if not self.public_can_access_module(connection, context, module_id):
+            return self.upgrade_required_page(context, "Leerpaden", module["title"])
 
-        resources = connection.execute(
-            "SELECT * FROM resources WHERE module_id = ? ORDER BY sort_order",
-            (module_id,),
-        ).fetchall()
+        active_org_id = self.active_organization_id(context)
+        can_manage_module_resources = bool(
+            active_org_id is not None and self.require_role(context, {"trainer", "organization_admin"})
+        )
+
+        if request.method == "POST":
+            if not can_manage_module_resources:
+                return self.forbidden(context)
+            if not self.verify_csrf(request, context):
+                return self.forbidden(context, "Ongeldige CSRF token.")
+            if request.get("action") != "add_module_resource":
+                return self.not_found(context)
+
+            resource_type = request.get("resource_type").strip().lower()
+            title = request.get("title").strip()
+            concept_label = request.get("concept_label").strip()
+            content_text = request.get("content").strip()
+            link_url = request.get("link_url").strip()
+            if resource_type not in {"reader", "literature"}:
+                return self.redirect(f"/modules/{module_id}?notice=" + quote_plus("Kies een geldig type lesmateriaal."))
+            if not title:
+                return self.redirect(f"/modules/{module_id}?notice=" + quote_plus("Geef het lesmateriaal een titel."))
+            if resource_type == "literature" and not concept_label:
+                return self.redirect(f"/modules/{module_id}?notice=" + quote_plus("Geef bij verdiepende literatuur aan over welk concept het boek gaat."))
+
+            next_sort_order = (
+                connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort_order
+                    FROM resources
+                    WHERE module_id = ?
+                      AND COALESCE(organization_id, 0) = COALESCE(?, 0)
+                    """,
+                    (module_id, active_org_id),
+                ).fetchone()["next_sort_order"]
+            )
+            connection.execute(
+                """
+                INSERT INTO resources (
+                    organization_id, module_id, title, resource_type, content, concept_label, link_url, sort_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    active_org_id,
+                    module_id,
+                    title,
+                    resource_type,
+                    content_text,
+                    concept_label,
+                    link_url,
+                    next_sort_order,
+                ),
+            )
+            connection.commit()
+            return self.redirect(f"/modules/{module_id}?notice=" + quote_plus("Lesmateriaal toegevoegd."))
+
+        if active_org_id is None:
+            resources = connection.execute(
+                """
+                SELECT *
+                FROM resources
+                WHERE module_id = ?
+                  AND organization_id IS NULL
+                ORDER BY sort_order, id
+                """,
+                (module_id,),
+            ).fetchall()
+        else:
+            resources = connection.execute(
+                """
+                SELECT *
+                FROM resources
+                WHERE module_id = ?
+                  AND (organization_id IS NULL OR organization_id = ?)
+                ORDER BY CASE WHEN organization_id IS NULL THEN 0 ELSE 1 END, sort_order, id
+                """,
+                (module_id, active_org_id),
+            ).fetchall()
+
         topics = connection.execute(
             "SELECT * FROM topics WHERE module_id = ? ORDER BY sort_order",
             (module_id,),
@@ -1837,6 +2456,78 @@ class WebApp:
             quiz_action = f"<a class='button button-primary' href='/modules/{module_id}/quiz'>Verder waar je was</a>"
             quiz_extra_action = f"<a class='button button-secondary' href='/modules/{module_id}/quiz?restart=1'>Opnieuw beginnen</a>"
 
+        reading_resources = [resource for resource in resources if resource_bucket(resource["resource_type"]) == "reading"]
+        literature_resources = [resource for resource in resources if resource_bucket(resource["resource_type"]) == "literature"]
+
+        def render_resource_cards(resource_rows, empty_message: str) -> str:
+            if not resource_rows:
+                return f"<p class='helper'>{h(empty_message)}</p>"
+
+            cards = []
+            for resource in resource_rows:
+                source_label = "Organisatie" if resource["organization_id"] else resource["resource_type"]
+                concept_html = (
+                    f"<p class='helper'><strong>Concept:</strong> {h(resource['concept_label'])}</p>"
+                    if resource["concept_label"]
+                    else ""
+                )
+                link_html = (
+                    f"<p><a class='button button-secondary small' href='{h(resource['link_url'])}' target='_blank' rel='noopener noreferrer'>Open link</a></p>"
+                    if resource["link_url"]
+                    else ""
+                )
+                description_html = f"<p>{h(resource['content'])}</p>" if resource["content"] else ""
+                cards.append(
+                    "<div class='resource-block'>"
+                    f"<strong>{h(resource['title'])}</strong>"
+                    f"<span>{h(source_label)}</span>"
+                    f"{concept_html}"
+                    f"{description_html}"
+                    f"{link_html}"
+                    "</div>"
+                )
+            return "".join(cards)
+
+        literature_section = (
+            "<article class='panel inset'><h3>Verdiepende literatuur</h3>"
+            "<p class='helper'>Boeken en aanvullende bronnen waarmee leerlingen dieper op een concept kunnen doorleren.</p>"
+            + render_resource_cards(literature_resources, "Er is nog geen verdiepende literatuur toegevoegd voor dit leerpad.")
+            + "</article>"
+        )
+        reading_section = (
+            "<article class='panel inset'><h3>Leeswerk</h3>"
+            "<p class='helper'>Reader-, map- en naslaglinks die direct bij dit leerpad horen.</p>"
+            + render_resource_cards(reading_resources, "Er is nog geen leeswerk gekoppeld aan dit leerpad.")
+            + "</article>"
+        )
+        lesson_material_section = (
+            "<section class='panel'><h2>Lesmateriaal</h2><div class='grid two-up'>"
+            + reading_section
+            + literature_section
+            + "</div></section>"
+        )
+
+        resource_management_section = ""
+        if can_manage_module_resources:
+            resource_management_section = (
+                "<section class='panel form-panel'>"
+                "<h2>Lesmateriaal beheren</h2>"
+                f"<p class='helper'>Nieuwe items die je hier toevoegt zijn alleen zichtbaar voor deelnemers binnen <strong>{h(context['active_membership']['organization_name'])}</strong>.</p>"
+                f"<form method='post' action='/modules/{module_id}'>"
+                f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+                "<input type='hidden' name='action' value='add_module_resource'>"
+                "<div class='grid two-up'>"
+                "<label class='field'><span>Type</span><select name='resource_type'><option value='reader'>Leeswerk</option><option value='literature'>Verdiepende literatuur</option></select></label>"
+                "<label class='field'><span>Titel</span><input type='text' name='title' placeholder='Bijv. Reader hoofdstuk 3 of Titel van het boek' required></label>"
+                "<label class='field'><span>Concept</span><input type='text' name='concept_label' placeholder='Bijv. Metamodel, ankeren, submodaliteiten'></label>"
+                "<label class='field'><span>Link</span><input type='text' name='link_url' placeholder='https://... of /static/...'></label>"
+                "</div>"
+                "<label class='field'><span>Toelichting</span><textarea name='content' rows='4' placeholder='Korte toelichting, wat de leerling hier kan vinden of waarom dit relevant is.'></textarea></label>"
+                "<button class='button button-primary' type='submit'>Lesmateriaal toevoegen</button>"
+                "</form>"
+                "</section>"
+            )
+
         pathway_cards = f"""
         <section class='panel'>
           <h2>Verdiepingspaden</h2>
@@ -1869,15 +2560,11 @@ class WebApp:
         content = [
             f"<section class='hero compact'><div><span class='eyebrow'>{h(module['program_title'])}</span><h1>{h(module['title'])}</h1><p>{h(module['summary'])}</p></div></section>",
             pathway_cards,
-            "<section class='panel'><h2>Lesmateriaal</h2>"
-            + "".join(
-                f"<div class='resource-block'><strong>{h(resource['title'])}</strong><span>{h(resource['resource_type'])}</span><p>{h(resource['content'])}</p></div>"
-                for resource in resources
-            )
-            + "</section>",
             "<section class='panel'><h2>Onderwerpen en concepten</h2><div class='topic-grid'>"
             + "".join(topic_blocks)
             + "</div></section>",
+            lesson_material_section,
+            resource_management_section,
         ]
         return self.html(h(module["title"]), "".join(content), context)
 
@@ -1946,6 +2633,8 @@ class WebApp:
         ).fetchone()
         if not module:
             return self.not_found(context)
+        if not self.public_can_access_module(connection, context, module_id):
+            return self.upgrade_required_page(context, "Leerpaden", module["title"])
 
         exercises = connection.execute(
             """
@@ -2267,6 +2956,8 @@ class WebApp:
         ).fetchone()
         if not module:
             return self.not_found(context)
+        if not self.public_can_access_module(connection, context, module_id):
+            return self.upgrade_required_page(context, "Leerpaden", module["title"])
 
         quiz_session = self.get_module_quiz_session(connection, context["user"]["user_id"], module_id)
         if quiz_session:
@@ -2555,7 +3246,7 @@ class WebApp:
             """
             SELECT users.id, users.first_name, users.last_name,
                    COUNT(DISTINCT attempts.exercise_id) AS completed_items,
-                   ROUND(AVG(COALESCE(attempts.manual_score, attempts.auto_score)), 1) AS avg_score
+                   AVG(COALESCE(attempts.manual_score, attempts.auto_score)) AS avg_score
             FROM assignment_targets
             JOIN users ON users.id = assignment_targets.target_user_id
             LEFT JOIN attempts ON attempts.assignment_id = assignment_targets.assignment_id
