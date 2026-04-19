@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import quote_plus
 
-from . import db, deletion_requests
+from . import db, deletion_requests, web as web_module
 from .web import Response, WebApp, h
 
 _PATCHED = False
@@ -23,6 +23,102 @@ def _inject_panel(response: Response, panel_html: str) -> Response:
     return Response(response.status, body.encode("utf-8"), list(response.headers))
 
 
+def _build_model_information_blocks(model: dict) -> list[dict[str, list[str] | str]]:
+    blocks = model.get("blocks", [])
+    existing_groups = [block.get("paragraphs", []) for block in blocks]
+    while len(existing_groups) < 3:
+        existing_groups.append([])
+
+    return [
+        {
+            "heading": "Wat is het model",
+            "paragraphs": web_module.combine_unique_paragraphs(
+                [model.get("intro", "")],
+                existing_groups[0],
+                existing_groups[1],
+            ),
+        },
+        {
+            "heading": "Wat kan je met het model",
+            "paragraphs": web_module.combine_unique_paragraphs(
+                existing_groups[2],
+                model.get(
+                    "application_paragraphs",
+                    [
+                        f"Gebruik dit vak om uit te werken hoe {model['title']} in gesprekken, analyses, oefeningen of reflectie wordt toegepast, inclusief concrete voorbeelden.",
+                    ],
+                ),
+            ),
+        },
+        {
+            "heading": "Waar komt het model vandaan",
+            "paragraphs": web_module.combine_unique_paragraphs(
+                model.get(
+                    "history_paragraphs",
+                    [
+                        f"Voeg hier achtergrondinformatie toe over de ontwikkelaar of ontwikkelaars van {model['title']}, de context waarin het model ontstond en de reden waarom dit model werd ontwikkeld.",
+                    ],
+                ),
+            ),
+        },
+        {
+            "heading": "Verdere informatie, uitleg en oefeningen",
+            "paragraphs": web_module.combine_unique_paragraphs(
+                model.get(
+                    "reference_paragraphs",
+                    [
+                        f"Verwijs hier naar reader, map, hoofdstukken, boeken, verdiepingspaden en oefeningen waarin {model['title']} verder wordt uitgelegd.",
+                    ],
+                ),
+            ),
+        },
+    ]
+
+
+def _account_deactivation_page(self: WebApp, connection, request, context: dict) -> Response:
+    if not context["user"]:
+        return self.redirect("/login")
+    if context["user"].get("is_platform_admin"):
+        return self.forbidden(context, "Het owner-account kan niet worden gedeactiveerd.")
+
+    if request.method == "POST":
+        if not self.verify_csrf(request, context):
+            return self.forbidden(context, "Ongeldige CSRF token.")
+
+        decision = request.get("decision")
+        if decision == "no":
+            return self.redirect("/dashboard")
+        if decision != "yes":
+            return self.redirect("/account/deactivate")
+
+        deletion_requests.create_user_deletion_request(
+            connection,
+            user_id=int(context["user"]["user_id"]),
+            reason="Aangevraagd via accountdeactivatie.",
+        )
+        db.deactivate_user_account(connection, int(context["user"]["user_id"]))
+        connection.commit()
+        response = self.redirect("/login?notice=" + quote_plus("Account gedeactiveerd."))
+        response.headers.append(("Set-Cookie", "session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"))
+        return response
+
+    body = (
+        "<section class='hero compact'><div><span class='eyebrow'>Account</span><h1>Account deactiveren</h1>"
+        "<p>Na bevestiging wordt je account direct gedeactiveerd. Je wordt uitgelogd, kunt daarna niet meer inloggen en de eigenaar ontvangt een verwijderverzoek.</p></div>"
+        "<div class='actions'><a class='button button-secondary' href='/dashboard'>Terug naar dashboard</a></div></section>"
+        "<section class='panel form-panel'>"
+        "<h2>Weet je het zeker?</h2>"
+        "<p class='helper'>Kies <strong>Ja</strong> om je account te deactiveren. Kies <strong>Nee</strong> om terug te gaan naar je homepagina.</p>"
+        f"<form method='post' action='/account/deactivate' style='display:flex; gap:0.75rem; flex-wrap:wrap;'>"
+        f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+        "<button class='button button-primary' type='submit' name='decision' value='yes'>Ja</button>"
+        "<button class='button button-secondary' type='submit' name='decision' value='no'>Nee</button>"
+        "</form>"
+        "</section>"
+    )
+    return self.html("Account deactiveren", body, context)
+
+
 def _deletion_request_page(self: WebApp, connection, request, context: dict) -> Response:
     if not context["user"]:
         return self.redirect("/login")
@@ -38,18 +134,7 @@ def _deletion_request_page(self: WebApp, connection, request, context: dict) -> 
     action = request.get("action")
     try:
         if action == "request_account_deletion":
-            if _is_platform_owner(context):
-                return self.forbidden(context, "Het owner-account kan geen verwijderverzoek voor zichzelf indienen.")
-            deletion_requests.create_user_deletion_request(
-                connection,
-                user_id=context["user"]["user_id"],
-                reason=request.get("reason").strip(),
-            )
-            connection.commit()
-            return self.redirect(
-                "/dashboard?notice="
-                + quote_plus("Je verwijderverzoek is ingediend. Alleen de eigenaar kan dit goedkeuren of afwijzen.")
-            )
+            return self.redirect("/account/deactivate")
 
         if action == "request_organization_deletion":
             if not self.require_role(context, {"organization_admin"}):
@@ -101,28 +186,6 @@ def _render_account_deletion_panels(self: WebApp, connection, context: dict) -> 
     if not user or user.get("is_platform_admin"):
         return ""
 
-    pending_account_request = deletion_requests.get_pending_user_request(connection, int(user["user_id"]))
-    account_panel = (
-        "<article class='panel inset'>"
-        "<h2>Accountverwijdering</h2>"
-        f"<p class='helper'>Je accountverwijderverzoek staat open sinds {h((pending_account_request['created_at'] or '').split('T')[0])}. Alleen de eigenaar kan dit goedkeuren of afwijzen.</p>"
-        f"<p><strong>Status:</strong> {h(pending_account_request['status'])}</p>"
-        "</article>"
-        if pending_account_request
-        else (
-            "<article class='panel form-panel'>"
-            "<h2>Accountverwijdering aanvragen</h2>"
-            "<p class='helper'>Je account wordt niet direct verwijderd. Alleen de eigenaar kan het verzoek goedkeuren of afwijzen.</p>"
-            f"<form method='post' action='/deletion-requests'>"
-            f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
-            "<input type='hidden' name='action' value='request_account_deletion'>"
-            "<label class='field'><span>Reden (optioneel)</span><textarea name='reason' rows='4' placeholder='Waarom wil je je account laten verwijderen?'></textarea></label>"
-            "<button class='button button-secondary' type='submit'>Verwijdering aanvragen</button>"
-            "</form>"
-            "</article>"
-        )
-    )
-
     organization_panel = ""
     if self.require_role(context, {"organization_admin"}):
         active = context["active_membership"]
@@ -151,10 +214,9 @@ def _render_account_deletion_panels(self: WebApp, connection, context: dict) -> 
             )
         )
 
-    panels = [account_panel]
-    if organization_panel:
-        panels.append(organization_panel)
-    return "<section class='grid two-up'>" + "".join(panels) + "</section>"
+    if not organization_panel:
+        return ""
+    return "<section class='grid two-up'>" + organization_panel + "</section>"
 
 
 def _platform_deletion_request_dashboard(self: WebApp, connection, context: dict) -> Response:
@@ -219,16 +281,26 @@ def apply() -> None:
     original_student_dashboard = WebApp.student_dashboard
     original_trainer_dashboard = WebApp.trainer_dashboard
     original_organization_admin_dashboard = WebApp.organization_admin_dashboard
+    original_module_page = WebApp.module_page
 
     def render_nav(self: WebApp, context: dict) -> str:
         nav = original_render_nav(self, context)
-        if not _is_platform_owner(context) or "/deletion-requests" in nav:
+        if _is_platform_owner(context):
+            if "/deletion-requests" not in nav:
+                nav = nav.replace(
+                    "<a class='nav-link' href='/logout'>Logout</a>",
+                    "<a class='nav-link' href='/deletion-requests'>Verwijderverzoeken</a><a class='nav-link' href='/logout'>Logout</a>",
+                    1,
+                )
             return nav
-        return nav.replace(
-            "<a class='nav-link' href='/logout'>Logout</a>",
-            "<a class='nav-link' href='/deletion-requests'>Verwijderverzoeken</a><a class='nav-link' href='/logout'>Logout</a>",
-            1,
-        )
+
+        if context.get("user") and "/account/deactivate" not in nav:
+            return nav.replace(
+                "<a class='nav-link' href='/logout'>Logout</a>",
+                "<a class='nav-link' href='/account/deactivate'>Deactiveer account</a><a class='nav-link' href='/logout'>Logout</a>",
+                1,
+            )
+        return nav
 
     def dispatch(self: WebApp, request) -> Response:
         if request.path == "/deletion-requests":
@@ -253,6 +325,23 @@ def apply() -> None:
         response = original_organization_admin_dashboard(self, connection, request, context)
         return _inject_panel(response, self.render_account_deletion_panels(connection, context))
 
+    def module_page(self: WebApp, connection, request, context: dict, module_id: int) -> Response:
+        response = original_module_page(self, connection, request, context, module_id)
+        body = response.body.decode("utf-8", errors="ignore")
+        replacements = {
+            "<h3>Leeswerk</h3>": "<h3>Leesstof van de les</h3>",
+            "Reader-, map- en naslaglinks die direct bij dit leerpad horen.": "Reader-, map- en lesinformatie die direct bij dit verdiepingspad horen.",
+            "<h3>Verdiepende literatuur</h3>": "<h3>Meer informatie</h3>",
+            "Boeken en aanvullende bronnen waarmee leerlingen dieper op een concept kunnen doorleren.": "Verwijzingen naar verdiepende boeken, extra uitleg, video-links en andere bronnen om verder te verdiepen.",
+            "Er is nog geen leeswerk gekoppeld aan dit leerpad.": "Er is nog geen leesstof toegevoegd aan dit leerpad.",
+            "Er is nog geen verdiepende literatuur toegevoegd voor dit leerpad.": "Er is nog geen extra informatie toegevoegd voor dit leerpad.",
+        }
+        for old, new in replacements.items():
+            body = body.replace(old, new)
+        return Response(response.status, body.encode("utf-8"), list(response.headers))
+
+    web_module.build_model_information_blocks = _build_model_information_blocks
+    WebApp.account_deactivation_page = _account_deactivation_page
     WebApp.deletion_request_page = _deletion_request_page
     WebApp.render_account_deletion_panels = _render_account_deletion_panels
     WebApp.platform_deletion_request_dashboard = _platform_deletion_request_dashboard
@@ -262,6 +351,7 @@ def apply() -> None:
     WebApp.student_dashboard = student_dashboard
     WebApp.trainer_dashboard = trainer_dashboard
     WebApp.organization_admin_dashboard = organization_admin_dashboard
+    WebApp.module_page = module_page
     _PATCHED = True
 
 
