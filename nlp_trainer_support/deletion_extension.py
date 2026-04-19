@@ -22,7 +22,7 @@ _HISTORY_OF_NLP_LAYOUT = {
             "people": [
                 {
                     "name": "Virginia Satir",
-                    "image_filename": "virginia_satir_picture.svg",
+                    "image_filename": "virginia_satir_picture.jpg",
                     "points": [
                         "Gezinstherapie",
                         "Communicatiecategorieen",
@@ -32,7 +32,7 @@ _HISTORY_OF_NLP_LAYOUT = {
                 },
                 {
                     "name": "Milton Erickson",
-                    "image_filename": "milton_erickson.svg",
+                    "image_filename": "milton_erickson.jpg",
                     "points": [
                         "Hypnotherapie",
                         "Indirecte suggestie",
@@ -42,7 +42,7 @@ _HISTORY_OF_NLP_LAYOUT = {
                 },
                 {
                     "name": "Fritz Perls",
-                    "image_filename": "fritz_perls.svg",
+                    "image_filename": "fritz_perls.jpg",
                     "points": [
                         "Gestalttherapie",
                         "Hier-en-nu",
@@ -58,7 +58,7 @@ _HISTORY_OF_NLP_LAYOUT = {
             "people": [
                 {
                     "name": "Frank Pucelik",
-                    "image_filename": "pucelik.svg",
+                    "image_filename": "pucelik.jpg",
                     "points": [
                         "Co-grondlegger",
                         "NLP-model",
@@ -68,7 +68,7 @@ _HISTORY_OF_NLP_LAYOUT = {
                 },
                 {
                     "name": "Richard Bandler",
-                    "image_filename": "richard_bandler.svg",
+                    "image_filename": "richard_bandler.jpg",
                     "points": [
                         "Co-creator",
                         "Modelleren van therapeuten",
@@ -78,7 +78,7 @@ _HISTORY_OF_NLP_LAYOUT = {
                 },
                 {
                     "name": "John Grinder",
-                    "image_filename": "john_grinder.svg",
+                    "image_filename": "john_grinder.jpg",
                     "points": [
                         "Linguistiek",
                         "Modelleren",
