@@ -13,16 +13,6 @@ def _is_platform_owner(context: dict) -> bool:
     return bool(user and user.get("is_platform_admin") and not context.get("active_membership"))
 
 
-def _inject_panel(response: Response, panel_html: str) -> Response:
-    if not panel_html:
-        return response
-    body = response.body.decode("utf-8", errors="ignore")
-    if "</main>" not in body:
-        return response
-    body = body.replace("</main>", panel_html + "</main>", 1)
-    return Response(response.status, body.encode("utf-8"), list(response.headers))
-
-
 def _build_model_information_blocks(model: dict) -> list[dict[str, list[str] | str]]:
     blocks = model.get("blocks", [])
     existing_groups = [block.get("paragraphs", []) for block in blocks]
@@ -186,36 +176,34 @@ def _render_account_deletion_panels(self: WebApp, connection, context: dict) -> 
     if not user or user.get("is_platform_admin"):
         return ""
 
-    organization_panel = ""
-    if self.require_role(context, {"organization_admin"}):
-        active = context["active_membership"]
-        pending_org_request = deletion_requests.get_pending_organization_request(
-            connection,
-            int(active["organization_id"]),
-        )
-        organization_panel = (
-            "<article class='panel inset'>"
-            "<h2>Organisatieverwijdering</h2>"
-            f"<p class='helper'>Voor organisatie <strong>{h(active['organization_name'])}</strong> staat sinds {h((pending_org_request['created_at'] or '').split('T')[0])} een open verwijderverzoek. Alleen de eigenaar kan dit goedkeuren of afwijzen.</p>"
-            f"<p><strong>Status:</strong> {h(pending_org_request['status'])}</p>"
-            "</article>"
-            if pending_org_request
-            else (
-                "<article class='panel form-panel'>"
-                "<h2>Organisatieverwijdering aanvragen</h2>"
-                "<p class='helper'>Na goedkeuring worden organisatiegegevens, groepen, opdrachten en gekoppelde beheerde accounts verwijderd.</p>"
-                f"<form method='post' action='/deletion-requests'>"
-                f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
-                "<input type='hidden' name='action' value='request_organization_deletion'>"
-                "<label class='field'><span>Reden (optioneel)</span><textarea name='reason' rows='4' placeholder='Waarom moet deze organisatie worden verwijderd?'></textarea></label>"
-                "<button class='button button-secondary' type='submit'>Organisatieverwijdering aanvragen</button>"
-                "</form>"
-                "</article>"
-            )
-        )
-
-    if not organization_panel:
+    if not self.require_role(context, {"organization_admin"}):
         return ""
+
+    active = context["active_membership"]
+    pending_org_request = deletion_requests.get_pending_organization_request(
+        connection,
+        int(active["organization_id"]),
+    )
+    organization_panel = (
+        "<article class='panel inset'>"
+        "<h2>Organisatieverwijdering</h2>"
+        f"<p class='helper'>Voor organisatie <strong>{h(active['organization_name'])}</strong> staat sinds {h((pending_org_request['created_at'] or '').split('T')[0])} een open verwijderverzoek. Alleen de eigenaar kan dit goedkeuren of afwijzen.</p>"
+        f"<p><strong>Status:</strong> {h(pending_org_request['status'])}</p>"
+        "</article>"
+        if pending_org_request
+        else (
+            "<article class='panel form-panel'>"
+            "<h2>Organisatieverwijdering aanvragen</h2>"
+            "<p class='helper'>Na goedkeuring worden organisatiegegevens, groepen, opdrachten en gekoppelde beheerde accounts verwijderd.</p>"
+            f"<form method='post' action='/deletion-requests'>"
+            f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
+            "<input type='hidden' name='action' value='request_organization_deletion'>"
+            "<label class='field'><span>Reden (optioneel)</span><textarea name='reason' rows='4' placeholder='Waarom moet deze organisatie worden verwijderd?'></textarea></label>"
+            "<button class='button button-secondary' type='submit'>Organisatieverwijdering aanvragen</button>"
+            "</form>"
+            "</article>"
+        )
+    )
     return "<section class='grid two-up'>" + organization_panel + "</section>"
 
 
@@ -270,6 +258,50 @@ def _platform_deletion_request_dashboard(self: WebApp, connection, context: dict
     return self.html("Verwijderverzoeken", "".join(body), context)
 
 
+def _extract_section(body: str, marker: str) -> tuple[int, int, str] | None:
+    start = body.find(marker)
+    if start == -1:
+        return None
+    end = body.find("</section>", start)
+    if end == -1:
+        return None
+    end += len("</section>")
+    return start, end, body[start:end]
+
+
+def _swap_module_sections(body: str) -> str:
+    lesson = _extract_section(body, "<section class='panel'><h2>Lesmateriaal</h2>")
+    topics = _extract_section(body, "<section class='panel'><h2>Onderwerpen en concepten</h2>")
+    if not lesson or not topics:
+        return body
+
+    lesson_start, lesson_end, lesson_html = lesson
+    topics_start, topics_end, topics_html = topics
+    if topics_start < lesson_start:
+        return body
+
+    return body[:lesson_start] + topics_html + body[lesson_end:topics_start] + lesson_html + body[topics_end:]
+
+
+def _module_page(self: WebApp, connection, request, context: dict, module_id: int) -> Response:
+    response = _module_page.original(self, connection, request, context, module_id)
+    body = response.body.decode("utf-8", errors="ignore")
+    replacements = {
+        "<h3>Leeswerk</h3>": "<h3>Leesstof van de les</h3>",
+        "Reader-, map- en naslaglinks die direct bij dit leerpad horen.": "Reader-, map- en lesinformatie die direct bij dit verdiepingspad horen.",
+        "<h3>Verdiepende literatuur</h3>": "<h3>Meer informatie</h3>",
+        "Boeken en aanvullende bronnen waarmee leerlingen dieper op een concept kunnen doorleren.": "Verwijzingen naar verdiepende boeken, extra uitleg, video-links en andere bronnen om verder te verdiepen.",
+        "Er is nog geen leeswerk gekoppeld aan dit leerpad.": "Er is nog geen leesstof toegevoegd aan dit leerpad.",
+        "Er is nog geen verdiepende literatuur toegevoegd voor dit leerpad.": "Er is nog geen extra informatie toegevoegd voor dit leerpad.",
+        "<option value='reader'>Leeswerk</option>": "<option value='reader'>Leesstof van de les</option>",
+        "<option value='literature'>Verdiepende literatuur</option>": "<option value='literature'>Meer informatie</option>",
+    }
+    for old, new in replacements.items():
+        body = body.replace(old, new)
+    body = _swap_module_sections(body)
+    return Response(response.status, body.encode("utf-8"), list(response.headers))
+
+
 def apply() -> None:
     global _PATCHED
     if _PATCHED:
@@ -277,11 +309,6 @@ def apply() -> None:
 
     original_render_nav = WebApp.render_nav
     original_dispatch = WebApp.dispatch
-    original_public_student_dashboard = WebApp.public_student_dashboard
-    original_student_dashboard = WebApp.student_dashboard
-    original_trainer_dashboard = WebApp.trainer_dashboard
-    original_organization_admin_dashboard = WebApp.organization_admin_dashboard
-    original_module_page = WebApp.module_page
 
     def render_nav(self: WebApp, context: dict) -> str:
         nav = original_render_nav(self, context)
@@ -303,43 +330,15 @@ def apply() -> None:
         return nav
 
     def dispatch(self: WebApp, request) -> Response:
-        if request.path == "/deletion-requests":
+        if request.path in {"/deletion-requests", "/account/deactivate"}:
             with db.connect() as connection:
                 context = self.get_context(connection, request)
-                return self.deletion_request_page(connection, request, context)
+                if request.path == "/deletion-requests":
+                    return self.deletion_request_page(connection, request, context)
+                return self.account_deactivation_page(connection, request, context)
         return original_dispatch(self, request)
 
-    def public_student_dashboard(self: WebApp, connection, context: dict) -> Response:
-        response = original_public_student_dashboard(self, connection, context)
-        return _inject_panel(response, self.render_account_deletion_panels(connection, context))
-
-    def student_dashboard(self: WebApp, connection, context: dict) -> Response:
-        response = original_student_dashboard(self, connection, context)
-        return _inject_panel(response, self.render_account_deletion_panels(connection, context))
-
-    def trainer_dashboard(self: WebApp, connection, request, context: dict) -> Response:
-        response = original_trainer_dashboard(self, connection, request, context)
-        return _inject_panel(response, self.render_account_deletion_panels(connection, context))
-
-    def organization_admin_dashboard(self: WebApp, connection, request, context: dict) -> Response:
-        response = original_organization_admin_dashboard(self, connection, request, context)
-        return _inject_panel(response, self.render_account_deletion_panels(connection, context))
-
-    def module_page(self: WebApp, connection, request, context: dict, module_id: int) -> Response:
-        response = original_module_page(self, connection, request, context, module_id)
-        body = response.body.decode("utf-8", errors="ignore")
-        replacements = {
-            "<h3>Leeswerk</h3>": "<h3>Leesstof van de les</h3>",
-            "Reader-, map- en naslaglinks die direct bij dit leerpad horen.": "Reader-, map- en lesinformatie die direct bij dit verdiepingspad horen.",
-            "<h3>Verdiepende literatuur</h3>": "<h3>Meer informatie</h3>",
-            "Boeken en aanvullende bronnen waarmee leerlingen dieper op een concept kunnen doorleren.": "Verwijzingen naar verdiepende boeken, extra uitleg, video-links en andere bronnen om verder te verdiepen.",
-            "Er is nog geen leeswerk gekoppeld aan dit leerpad.": "Er is nog geen leesstof toegevoegd aan dit leerpad.",
-            "Er is nog geen verdiepende literatuur toegevoegd voor dit leerpad.": "Er is nog geen extra informatie toegevoegd voor dit leerpad.",
-        }
-        for old, new in replacements.items():
-            body = body.replace(old, new)
-        return Response(response.status, body.encode("utf-8"), list(response.headers))
-
+    _module_page.original = WebApp.module_page
     web_module.build_model_information_blocks = _build_model_information_blocks
     WebApp.account_deactivation_page = _account_deactivation_page
     WebApp.deletion_request_page = _deletion_request_page
@@ -347,11 +346,7 @@ def apply() -> None:
     WebApp.platform_deletion_request_dashboard = _platform_deletion_request_dashboard
     WebApp.render_nav = render_nav
     WebApp.dispatch = dispatch
-    WebApp.public_student_dashboard = public_student_dashboard
-    WebApp.student_dashboard = student_dashboard
-    WebApp.trainer_dashboard = trainer_dashboard
-    WebApp.organization_admin_dashboard = organization_admin_dashboard
-    WebApp.module_page = module_page
+    WebApp.module_page = _module_page
     _PATCHED = True
 
 
