@@ -7,6 +7,7 @@ from wsgiref.simple_server import make_server
 from wsgiref.util import setup_testing_defaults
 
 import nlp_trainer_support.deletion_extension  # noqa: F401
+import nlp_trainer_support.game_extension  # noqa: F401
 from nlp_trainer_support import db
 from nlp_trainer_support.config import DEFAULT_HOST, DEFAULT_PORT
 from nlp_trainer_support.runtime_setup import initialize_runtime_database
