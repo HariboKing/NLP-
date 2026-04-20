@@ -47,6 +47,7 @@ _WORLD_MODELS_LAYOUT = {
             "title": "Het structureel differentiaal",
             "summary": "De basis van het onderscheid tussen werkelijkheid, waarneming en representatie.",
             "image_filename": "structureel-differentiaal_afbeelding.png",
+            "image_filename": "alfred_korzybski.jpg"
             "groups": [
                 {
                     "heading": "Alfred Korzybski",
@@ -61,7 +62,7 @@ _WORLD_MODELS_LAYOUT = {
         {
             "title": "Algemene semantiek",
             "summary": "Hoe taal, denken en ervaring samen bepalen hoe mensen de werkelijkheid structureren.",
-            "image_filename": "alfred_korzybski.jpg",
+            "image_filename": ,
             "groups": [
                 {
                     "heading": "Kern van algemene semantiek",
