@@ -108,7 +108,7 @@ _FOUNDATIONS_OF_NLP_LAYOUT = {
         {
             "title": "Wat is NLP / NLP staat voor / Over NLP",
             "summary": "De basisdefinities, oorsprong en positionering van NLP.",
-            "image_filename": "map.jpg",
+            "image_filename": "",
             "groups": [
                 {
                     "heading": "Wat is NLP",
@@ -219,7 +219,7 @@ _FOUNDATIONS_OF_NLP_LAYOUT = {
         {
             "title": "Fundament 2: Nine Major Beliefs",
             "summary": "De belangrijkste overtuigingen die richting geven aan hoe NLP naar menselijk gedrag en verandering kijkt.",
-            "image_filename": "",
+            "image_filename": "map.jpg",
             "groups": [
                 {
                     "heading": "Overzicht van de Nine Major Beliefs",
