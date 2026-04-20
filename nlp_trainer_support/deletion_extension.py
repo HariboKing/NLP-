@@ -58,7 +58,7 @@ _HISTORY_OF_NLP_LAYOUT = {
             "people": [
                 {
                     "name": "Frank Pucelik",
-                    "image_filename": "pucelik.jpg",
+                    "image_filename": "frank_pucelik.jpg",
                     "points": [
                         "Co-grondlegger",
                         "NLP-model",
