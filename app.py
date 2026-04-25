@@ -6,6 +6,7 @@ from urllib.parse import urlencode, urlsplit
 from wsgiref.simple_server import make_server
 from wsgiref.util import setup_testing_defaults
 
+import nlp_trainer_support.branding_extension  # noqa: F401
 import nlp_trainer_support.deletion_extension  # noqa: F401
 import nlp_trainer_support.game_extension  # noqa: F401
 import nlp_trainer_support.game_map_extension  # noqa: F401
