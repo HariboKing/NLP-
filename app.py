@@ -10,6 +10,7 @@ import nlp_trainer_support.branding_extension  # noqa: F401
 import nlp_trainer_support.deletion_extension  # noqa: F401
 import nlp_trainer_support.game_extension  # noqa: F401
 import nlp_trainer_support.game_map_extension  # noqa: F401
+import nlp_trainer_support.reviews_extension  # noqa: F401
 import nlp_trainer_support.world_models_extension  # noqa: F401
 from nlp_trainer_support import db
 from nlp_trainer_support.config import DEFAULT_HOST, DEFAULT_PORT
