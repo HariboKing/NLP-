@@ -1,3 +1,4 @@
+import nlp_trainer_support.branding_extension  # noqa: F401
 import nlp_trainer_support.deletion_extension  # noqa: F401
 import nlp_trainer_support.game_extension  # noqa: F401
 import nlp_trainer_support.game_map_extension  # noqa: F401
