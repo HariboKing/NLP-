@@ -14,7 +14,9 @@ ADVANCED_EXERCISE_TYPES = {"text_analysis", "match_pairs", "case_review"}
 
 
 def _ensure_question_override_columns(connection) -> None:
-    cms.ensure_content_schema(connection)
+    original_ensure_content_schema = getattr(_ensure_question_override_columns, "original", None)
+    if original_ensure_content_schema is not None:
+        original_ensure_content_schema(connection)
     db.ensure_column(connection, "content_exercise_overrides", "exercise_type", "TEXT NOT NULL DEFAULT ''")
     db.ensure_column(connection, "content_exercise_overrides", "difficulty", "TEXT NOT NULL DEFAULT 'core'")
 
@@ -450,6 +452,7 @@ def apply() -> None:
         return
 
     original_ensure_content_schema = cms.ensure_content_schema
+    _ensure_question_override_columns.original = original_ensure_content_schema
 
     def ensure_content_schema(connection) -> None:
         original_ensure_content_schema(connection)
