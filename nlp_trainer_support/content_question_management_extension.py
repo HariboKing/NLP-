@@ -9,138 +9,35 @@ from . import db
 from .web import Response, WebApp, h, parse_json
 
 _PATCHED = False
-
-QUESTION_TYPE_OPTIONS = [
-    ("multiple_choice", "Meerkeuze (1 goed)"),
-    ("multi_select", "Meerkeuze (meerdere goed)"),
-    ("short_answer", "Kort antwoord"),
-    ("reflection", "Reflectie"),
-    ("case_review", "Case review"),
-    ("study_card", "Studiekaart"),
-    ("text_analysis", "Tekstanalyse"),
-    ("match_pairs", "Koppelen"),
-]
-
-DIFFICULTY_OPTIONS = [
-    ("core", "Core"),
-    ("advanced", "Advanced"),
-]
+SIMPLE_EXERCISE_TYPES = {"multiple_choice", "multi_select", "short_answer", "study_card", "reflection"}
+ADVANCED_EXERCISE_TYPES = {"text_analysis", "match_pairs", "case_review"}
 
 
-def _question_type_select(selected: str = "multiple_choice") -> str:
-    return "".join(
-        f"<option value='{h(value)}'{' selected' if value == selected else ''}>{h(label)}</option>"
-        for value, label in QUESTION_TYPE_OPTIONS
-    )
+def _ensure_question_override_columns(connection) -> None:
+    cms.ensure_content_schema(connection)
+    db.ensure_column(connection, "content_exercise_overrides", "exercise_type", "TEXT NOT NULL DEFAULT ''")
+    db.ensure_column(connection, "content_exercise_overrides", "difficulty", "TEXT NOT NULL DEFAULT 'core'")
 
 
-def _difficulty_select(selected: str = "core") -> str:
-    return "".join(
-        f"<option value='{h(value)}'{' selected' if value == selected else ''}>{h(label)}</option>"
-        for value, label in DIFFICULTY_OPTIONS
-    )
-
-
-def _default_question_payload(exercise_type: str, title: str) -> tuple[str, str, str, str, float, int]:
+def _default_question_payload(title: str) -> tuple[str, str, str, str, float, int, str, str]:
     instructions = "Werk deze vraag verder uit in contentbeheer."
     prompt = title
-
-    if exercise_type == "multiple_choice":
-        content = {
-            "question": "Schrijf hier de meerkeuzevraag.",
-            "options": [
-                {"value": "option_1", "label": "Optie 1"},
-                {"value": "option_2", "label": "Optie 2"},
-                {"value": "option_3", "label": "Optie 3"},
-            ],
-            "model_answer": "Licht hier toe waarom het juiste antwoord klopt.",
-        }
-        scoring = {"correct_option": "option_1"}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 0
-
-    if exercise_type == "multi_select":
-        content = {
-            "question": "Schrijf hier de meerkeuzevraag met meerdere juiste antwoorden.",
-            "options": [
-                {"value": "option_1", "label": "Optie 1"},
-                {"value": "option_2", "label": "Optie 2"},
-                {"value": "option_3", "label": "Optie 3"},
-                {"value": "option_4", "label": "Optie 4"},
-            ],
-            "model_answer": "Licht hier toe welke onderdelen juist zijn en waarom.",
-        }
-        scoring = {"correct_options": ["option_1", "option_2"]}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 0
-
-    if exercise_type == "short_answer":
-        content = {
-            "question": "Schrijf hier de open vraag.",
-            "placeholder": "Schrijf hier je antwoord...",
-            "model_answer": "Plaats hier een voorbeeld van een sterk antwoord.",
-        }
-        scoring = {"keywords": ["kernwoord 1", "kernwoord 2"], "threshold": 0.4}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 0
-
-    if exercise_type == "study_card":
-        content = {
-            "question": "Schrijf hier de studiekaartvraag.",
-            "placeholder": "Schrijf hier je antwoord...",
-            "model_answer": "Plaats hier het modelantwoord.",
-        }
-        scoring = {}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 0
-
-    if exercise_type == "reflection":
-        content = {
-            "question": "Beschrijf hier de reflectievraag.",
-            "placeholder": "Beschrijf hier situatie, inzicht en volgende stap...",
-            "model_answer": "Beschrijf hier waar een sterk reflectieantwoord op let.",
-        }
-        scoring = {}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 1
-
-    if exercise_type == "case_review":
-        content = {
-            "case": "Beschrijf hier de casus die geanalyseerd moet worden.",
-            "guidance_points": [
-                "Kernpunt 1",
-                "Kernpunt 2",
-                "Kernpunt 3",
-            ],
-            "model_answer": "Beschrijf hier de richting van een sterk antwoord.",
-        }
-        scoring = {"rubric_points": ["kernpunt 1", "kernpunt 2"]}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 1
-
-    if exercise_type == "text_analysis":
-        content = {
-            "text": "Plaats hier de te analyseren tekst.",
-            "pattern_question": "Welke analyse is hier het meest passend?",
-            "options": [
-                {"value": "option_1", "label": "Optie 1"},
-                {"value": "option_2", "label": "Optie 2"},
-                {"value": "option_3", "label": "Optie 3"},
-            ],
-            "follow_up_prompt": "Welke vervolg- of verdiepingsvraag hoort hierbij?",
-            "model_answer": "Beschrijf hier het modelantwoord.",
-        }
-        scoring = {"correct_option": "option_1", "follow_up_keywords": ["kernwoord 1"], "threshold": 0.4}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 0
-
-    if exercise_type == "match_pairs":
-        content = {
-            "pairs": [
-                {"left": "Onderdeel 1", "options": ["Match 1", "Match 2"]},
-                {"left": "Onderdeel 2", "options": ["Match A", "Match B"]},
-            ],
-            "model_answer": "Beschrijf hier de juiste koppelingen.",
-        }
-        scoring = {"correct_matches": {"Onderdeel 1": "Match 1", "Onderdeel 2": "Match A"}}
-        return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 0
-
-    content = {"question": "Werk deze vraag verder uit.", "model_answer": ""}
+    content = {
+        "question": "Schrijf hier de vraag.",
+        "placeholder": "Schrijf hier je antwoord...",
+        "model_answer": "Plaats hier het modelantwoord of de toelichting.",
+    }
     scoring = {}
-    return instructions, prompt, json.dumps(content), json.dumps(scoring), 100.0, 0
+    return (
+        instructions,
+        prompt,
+        json.dumps(content),
+        json.dumps(scoring),
+        100.0,
+        0,
+        "study_card",
+        "core",
+    )
 
 
 def _unique_title(connection, desired_title: str) -> str:
@@ -153,13 +50,52 @@ def _unique_title(connection, desired_title: str) -> str:
     return candidate
 
 
-def _create_question(connection, module_id: int, user_id: int, title: str, exercise_type: str, difficulty: str) -> int:
+def _upsert_question_override(connection, exercise, *, exercise_type: str | None = None, difficulty: str | None = None, status: str | None = None, user_id: int) -> None:
+    _ensure_question_override_columns(connection)
+    content = parse_json(exercise["content_json"], {})
+    scoring = parse_json(exercise["scoring_json"], {})
+    connection.execute(
+        """
+        INSERT INTO content_exercise_overrides (
+            exercise_id, title, instructions, prompt, content_json, scoring_json, max_score,
+            requires_manual_review, status, updated_by_user_id, updated_at, exercise_type, difficulty
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (exercise_id) DO UPDATE SET
+            title = excluded.title,
+            instructions = excluded.instructions,
+            prompt = excluded.prompt,
+            content_json = excluded.content_json,
+            scoring_json = excluded.scoring_json,
+            max_score = excluded.max_score,
+            requires_manual_review = excluded.requires_manual_review,
+            status = excluded.status,
+            updated_by_user_id = excluded.updated_by_user_id,
+            updated_at = excluded.updated_at,
+            exercise_type = excluded.exercise_type,
+            difficulty = excluded.difficulty
+        """,
+        (
+            int(exercise["id"]),
+            exercise["title"],
+            exercise["instructions"],
+            exercise["prompt"],
+            json.dumps(content),
+            json.dumps(scoring),
+            float(exercise["max_score"]),
+            int(exercise["requires_manual_review"]),
+            status or exercise["status"],
+            user_id,
+            db.utc_now_iso(),
+            exercise_type or exercise["exercise_type"],
+            difficulty or exercise["difficulty"],
+        ),
+    )
+
+
+def _create_question(connection, module_id: int, user_id: int, title: str) -> int:
     safe_title = _unique_title(connection, title)
     created_at = db.utc_now_iso()
-    instructions, prompt, content_json, scoring_json, max_score, requires_manual_review = _default_question_payload(
-        exercise_type,
-        safe_title,
-    )
+    instructions, prompt, content_json, scoring_json, max_score, requires_manual_review, exercise_type, difficulty = _default_question_payload(safe_title)
     cursor = connection.execute(
         """
         INSERT INTO exercises (
@@ -188,37 +124,14 @@ def _create_question(connection, module_id: int, user_id: int, title: str, exerc
         ),
     )
     exercise_id = int(cursor.lastrowid)
-    connection.execute(
-        """
-        INSERT INTO content_exercise_overrides (
-            exercise_id, title, instructions, prompt, content_json, scoring_json, max_score,
-            requires_manual_review, status, updated_by_user_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (exercise_id) DO UPDATE SET
-            title = excluded.title,
-            instructions = excluded.instructions,
-            prompt = excluded.prompt,
-            content_json = excluded.content_json,
-            scoring_json = excluded.scoring_json,
-            max_score = excluded.max_score,
-            requires_manual_review = excluded.requires_manual_review,
-            status = excluded.status,
-            updated_by_user_id = excluded.updated_by_user_id,
-            updated_at = excluded.updated_at
-        """,
-        (
-            exercise_id,
-            safe_title,
-            instructions,
-            prompt,
-            content_json,
-            scoring_json,
-            max_score,
-            requires_manual_review,
-            "published",
-            user_id,
-            created_at,
-        ),
+    exercise = connection.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
+    _upsert_question_override(
+        connection,
+        exercise,
+        exercise_type=exercise_type,
+        difficulty=difficulty,
+        status="published",
+        user_id=user_id,
     )
     return exercise_id
 
@@ -227,43 +140,107 @@ def _archive_question(connection, exercise_id: int, user_id: int) -> int | None:
     exercise = connection.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
     if not exercise:
         return None
-    content = parse_json(exercise["content_json"], {})
-    scoring = parse_json(exercise["scoring_json"], {})
-    updated_at = db.utc_now_iso()
     connection.execute("UPDATE exercises SET status = 'archived' WHERE id = ?", (exercise_id,))
-    connection.execute(
-        """
-        INSERT INTO content_exercise_overrides (
-            exercise_id, title, instructions, prompt, content_json, scoring_json, max_score,
-            requires_manual_review, status, updated_by_user_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (exercise_id) DO UPDATE SET
-            title = excluded.title,
-            instructions = excluded.instructions,
-            prompt = excluded.prompt,
-            content_json = excluded.content_json,
-            scoring_json = excluded.scoring_json,
-            max_score = excluded.max_score,
-            requires_manual_review = excluded.requires_manual_review,
-            status = excluded.status,
-            updated_by_user_id = excluded.updated_by_user_id,
-            updated_at = excluded.updated_at
-        """,
-        (
-            exercise_id,
-            exercise["title"],
-            exercise["instructions"],
-            exercise["prompt"],
-            json.dumps(content),
-            json.dumps(scoring),
-            float(exercise["max_score"]),
-            int(exercise["requires_manual_review"]),
-            "archived",
-            user_id,
-            updated_at,
-        ),
-    )
+    updated = connection.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
+    _upsert_question_override(connection, updated, status="archived", user_id=user_id)
     return int(exercise["module_id"])
+
+
+def _option_lines_from_exercise(exercise_type: str, content: dict, scoring: dict) -> str:
+    if exercise_type not in {"multiple_choice", "multi_select"}:
+        return ""
+    if exercise_type == "multiple_choice":
+        correct_values = {scoring.get("correct_option", "")}
+    else:
+        correct_values = set(scoring.get("correct_options", []))
+    lines = []
+    for option in content.get("options", []):
+        prefix = "* " if option.get("value") in correct_values else ""
+        lines.append(prefix + option.get("label", ""))
+    return "\n".join(lines)
+
+
+def _parse_option_lines(text: str) -> list[tuple[str, bool]]:
+    parsed = []
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        is_correct = False
+        for marker in ("* ", "[x] ", "+ "):
+            if line.lower().startswith(marker.lower()):
+                line = line[len(marker):].strip()
+                is_correct = True
+                break
+        if line:
+            parsed.append((line, is_correct))
+    return parsed
+
+
+def _build_simple_payload(question: str, model_answer: str, options_text: str, keywords_text: str, requires_manual_review: bool) -> tuple[str, dict, dict]:
+    parsed_options = _parse_option_lines(options_text)
+    if parsed_options:
+        options = [{"value": f"option_{index}", "label": label} for index, (label, _correct) in enumerate(parsed_options, start=1)]
+        correct_values = [option["value"] for option, (_label, is_correct) in zip(options, parsed_options) if is_correct]
+        if not correct_values:
+            raise ValueError("Markeer minstens een juist antwoord met '* '.")
+        content = {
+            "question": question,
+            "options": options,
+            "model_answer": model_answer,
+        }
+        if len(correct_values) == 1:
+            return "multiple_choice", content, {"correct_option": correct_values[0]}
+        return "multi_select", content, {"correct_options": correct_values}
+
+    keywords = cms._clean_lines(keywords_text)
+    if requires_manual_review:
+        return (
+            "reflection",
+            {
+                "question": question,
+                "placeholder": "Schrijf hier je antwoord...",
+                "model_answer": model_answer,
+            },
+            {},
+        )
+    if keywords:
+        return (
+            "short_answer",
+            {
+                "question": question,
+                "placeholder": "Schrijf hier je antwoord...",
+                "model_answer": model_answer,
+            },
+            {"keywords": keywords, "threshold": 0.4},
+        )
+    return (
+        "study_card",
+        {
+            "question": question,
+            "placeholder": "Schrijf hier je antwoord...",
+            "model_answer": model_answer,
+        },
+        {},
+    )
+
+
+def _inject_delete_panel(response: Response, exercise_id: int, csrf_token: str) -> Response:
+    body = response.body.decode("utf-8", errors="ignore")
+    if "/delete'" in body or "</main>" not in body:
+        return response
+    panel = (
+        "<section class='panel form-panel'>"
+        "<h2>Vraag verwijderen</h2>"
+        "<p class='helper'>Verwijderen archiveert de vraag. De vraag verdwijnt uit de actieve flow, maar blijft in contentbeheer zichtbaar zodat je haar later eventueel kunt terugzetten.</p>"
+        f"<form method='post' action='/content/questions/{exercise_id}/delete'>"
+        f"<input type='hidden' name='csrf_token' value='{h(csrf_token)}'>"
+        "<button class='button button-secondary' type='submit'>Verwijderen</button>"
+        "</form>"
+        "</section>"
+    )
+    body = body.replace("</main>", panel + "</main>", 1)
+    return Response(response.status, body.encode("utf-8"), list(response.headers))
 
 
 def _content_questions(self: WebApp, connection, context: dict, module_id: int) -> Response:
@@ -272,7 +249,7 @@ def _content_questions(self: WebApp, connection, context: dict, module_id: int) 
         return self.not_found(context)
     rows = connection.execute(
         """
-        SELECT id, title, exercise_type, difficulty, status
+        SELECT id, title, status
         FROM exercises
         WHERE module_id = ?
         ORDER BY status = 'archived', id
@@ -282,8 +259,6 @@ def _content_questions(self: WebApp, connection, context: dict, module_id: int) 
     active_rows = [
         [
             f"<a href='/content/questions/{row['id']}'>{h(row['title'])}</a>",
-            h(row["exercise_type"]),
-            h(row["difficulty"]),
             h(row["status"]),
             (
                 f"<form method='post' action='/content/questions/{row['id']}/delete'>"
@@ -298,8 +273,6 @@ def _content_questions(self: WebApp, connection, context: dict, module_id: int) 
     archived_rows = [
         [
             f"<a href='/content/questions/{row['id']}'>{h(row['title'])}</a>",
-            h(row["exercise_type"]),
-            h(row["difficulty"]),
             h(row["status"]),
         ]
         for row in rows
@@ -310,50 +283,138 @@ def _content_questions(self: WebApp, connection, context: dict, module_id: int) 
     <div class='actions'><a class='button button-secondary' href='/content/modules/{module_id}'>Terug naar leerpad</a></div></section>
     <section class='panel form-panel'>
       <h2>Nieuwe vraag toevoegen</h2>
+      <p class='helper'>Nieuwe vragen beginnen als lege vraag. In de bewerkpagina bepaalt de inhoud daarna automatisch of het een keuzevraag, open vraag, studiekaart of reflectievraag wordt.</p>
       <form method='post' action='/content/modules/{module_id}/questions'>
         <input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>
         <label class='field'><span>Titel</span><input type='text' name='title' required></label>
-        <div class='field-row'>
-          <label class='field'><span>Type</span><select name='exercise_type'>{_question_type_select()}</select></label>
-          <label class='field'><span>Niveau</span><select name='difficulty'>{_difficulty_select()}</select></label>
-        </div>
         <button class='button button-primary' type='submit'>Vraag toevoegen</button>
       </form>
     </section>
     <section class='panel'>
       <h2>Actieve vragen</h2>
-      {self.render_table(["Vraag", "Type", "Niveau", "Status", "Actie"], active_rows)}
+      {self.render_table(["Vraag", "Status", "Actie"], active_rows)}
     </section>
     """
     if archived_rows:
         body += "<section class='panel inset'><h2>Gearchiveerde vragen</h2>" + self.render_table(
-            ["Vraag", "Type", "Niveau", "Status"],
+            ["Vraag", "Status"],
             archived_rows,
         ) + "</section>"
     return self.html("Vragen beheren", body, context)
 
 
 def _edit_question(self: WebApp, connection, request, context: dict, exercise_id: int) -> Response:
-    response = _edit_question.original(self, connection, request, context, exercise_id)
-    if request.method != "GET":
-        return response
-    body = response.body.decode("utf-8", errors="ignore")
-    if "/delete'" in body:
-        return response
-    panel = (
-        "<section class='panel form-panel'>"
-        "<h2>Vraag verwijderen</h2>"
-        "<p class='helper'>Verwijderen archiveert de vraag. De vraag verdwijnt uit de actieve flow, maar blijft in contentbeheer zichtbaar zodat je haar later eventueel kunt terugzetten.</p>"
-        f"<form method='post' action='/content/questions/{exercise_id}/delete'>"
-        f"<input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>"
-        "<button class='button button-secondary' type='submit'>Verwijderen</button>"
-        "</form>"
-        "</section>"
-    )
-    if "</main>" not in body:
-        return response
-    body = body.replace("</main>", panel + "</main>", 1)
-    return Response(response.status, body.encode("utf-8"), list(response.headers))
+    exercise = connection.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
+    if not exercise:
+        return self.not_found(context)
+
+    if exercise["exercise_type"] in ADVANCED_EXERCISE_TYPES:
+        response = _edit_question.original(self, connection, request, context, exercise_id)
+        if request.method != "GET":
+            return response
+        return _inject_delete_panel(response, exercise_id, context["session"]["csrf_token"])
+
+    content = parse_json(exercise["content_json"], {})
+    scoring = parse_json(exercise["scoring_json"], {})
+    notice = ""
+    if request.method == "POST":
+        if not self.verify_csrf(request, context):
+            return self.forbidden(context, "Ongeldige CSRF token.")
+        try:
+            title = request.get("title").strip() or exercise["title"]
+            instructions = request.get("instructions").strip()
+            question = request.get("question").strip() or exercise["prompt"]
+            model_answer = request.get("model_answer").strip()
+            options_text = request.get("options_text")
+            keywords_text = request.get("keywords_text")
+            requires_manual_review = 1 if request.get("requires_manual_review") == "1" else 0
+            max_score = float(request.get("max_score", str(exercise["max_score"])) or exercise["max_score"])
+            status = request.get("status").strip() or "published"
+            exercise_type, new_content, new_scoring = _build_simple_payload(
+                question,
+                model_answer,
+                options_text,
+                keywords_text,
+                bool(requires_manual_review),
+            )
+            content_json = json.dumps(new_content)
+            scoring_json = json.dumps(new_scoring)
+            prompt = question
+
+            connection.execute(
+                """
+                UPDATE exercises
+                SET title = ?, exercise_type = ?, instructions = ?, prompt = ?, content_json = ?, scoring_json = ?,
+                    max_score = ?, requires_manual_review = ?, status = ?
+                WHERE id = ?
+                """,
+                (
+                    title,
+                    exercise_type,
+                    instructions,
+                    prompt,
+                    content_json,
+                    scoring_json,
+                    max_score,
+                    requires_manual_review,
+                    status,
+                    exercise_id,
+                ),
+            )
+            updated = connection.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
+            _upsert_question_override(
+                connection,
+                updated,
+                exercise_type=exercise_type,
+                difficulty=updated["difficulty"],
+                status=status,
+                user_id=int(context["user"]["user_id"]),
+            )
+            connection.commit()
+            return self.redirect(f"/content/questions/{exercise_id}?notice=" + quote_plus("Vraag opgeslagen."))
+        except ValueError as exc:
+            notice = str(exc)
+            exercise = connection.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
+            content = parse_json(exercise["content_json"], {})
+            scoring = parse_json(exercise["scoring_json"], {})
+
+    question = content.get("question") or exercise["prompt"]
+    model_answer = content.get("model_answer", "")
+    options_text = _option_lines_from_exercise(exercise["exercise_type"], content, scoring)
+    keywords_text = "\n".join(scoring.get("keywords", [])) if exercise["exercise_type"] == "short_answer" else ""
+    checked = " checked" if exercise["requires_manual_review"] else ""
+    notice_html = f"<div class='notice'>{h(notice)}</div>" if notice else ""
+    body = f"""
+    <section class='hero compact'><div><span class='eyebrow'>Vraag beheren</span><h1>{h(exercise['title'])}</h1><p>De vorm van de vraag wordt automatisch bepaald door de inhoud.</p></div>
+    <div class='actions'><a class='button button-secondary' href='/content/modules/{exercise['module_id']}/questions'>Terug</a></div></section>
+    {notice_html}
+    <section class='panel form-panel'>
+      <form method='post' action='/content/questions/{exercise_id}'>
+        <input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>
+        <label class='field'><span>Titel</span><input type='text' name='title' value='{h(exercise['title'])}'></label>
+        <label class='field'><span>Instructie</span><textarea name='instructions' rows='3'>{h(exercise['instructions'])}</textarea></label>
+        <label class='field'><span>Vraag</span><textarea name='question' rows='5'>{h(question)}</textarea></label>
+        <label class='field'><span>Antwoordopties (optioneel)</span><textarea name='options_text' rows='8' placeholder='Zet 1 antwoord per regel. Begin juiste antwoorden met * .'>{h(options_text)}</textarea></label>
+        <label class='field'><span>Modelantwoord / toelichting</span><textarea name='model_answer' rows='6'>{h(model_answer)}</textarea></label>
+        <label class='field'><span>Kernwoorden voor automatische score (optioneel)</span><textarea name='keywords_text' rows='5' placeholder='Laat leeg voor studiekaart. Gebruik 1 kernwoord of frase per regel.'>{h(keywords_text)}</textarea></label>
+        <div class='field-row'>
+          <label class='field'><span>Max score</span><input type='number' name='max_score' min='1' max='100' step='1' value='{h(exercise['max_score'])}'></label>
+          <label class='field'><span>Status</span><select name='status'><option value='published'{' selected' if exercise['status'] == 'published' else ''}>published</option><option value='archived'{' selected' if exercise['status'] == 'archived' else ''}>archived</option></select></label>
+          <label class='field checkbox-row'><input type='checkbox' name='requires_manual_review' value='1'{checked}><span>Handmatige beoordeling</span></label>
+        </div>
+        <button class='button button-primary' type='submit'>Opslaan</button>
+      </form>
+    </section>
+    <section class='panel form-panel'>
+      <h2>Vraag verwijderen</h2>
+      <p class='helper'>Verwijderen archiveert de vraag. De vraag verdwijnt uit de actieve flow, maar blijft in contentbeheer zichtbaar zodat je haar later eventueel kunt terugzetten.</p>
+      <form method='post' action='/content/questions/{exercise_id}/delete'>
+        <input type='hidden' name='csrf_token' value='{h(context['session']['csrf_token'])}'>
+        <button class='button button-secondary' type='submit'>Verwijderen</button>
+      </form>
+    </section>
+    """
+    return self.html("Vraag beheren", body, context)
 
 
 def _content_dispatch(self: WebApp, connection, request, context: dict) -> Response:
@@ -366,8 +427,6 @@ def _content_dispatch(self: WebApp, connection, request, context: dict) -> Respo
             int(module_questions_match.group(1)),
             int(context["user"]["user_id"]),
             request.get("title").strip(),
-            request.get("exercise_type").strip() or "multiple_choice",
-            request.get("difficulty").strip() or "core",
         )
         connection.commit()
         return self.redirect(f"/content/questions/{exercise_id}?notice=" + quote_plus("Vraag toegevoegd."))
@@ -389,6 +448,41 @@ def apply() -> None:
     global _PATCHED
     if _PATCHED:
         return
+
+    original_ensure_content_schema = cms.ensure_content_schema
+
+    def ensure_content_schema(connection) -> None:
+        original_ensure_content_schema(connection)
+        _ensure_question_override_columns(connection)
+
+    cms.ensure_content_schema = ensure_content_schema
+
+    original_apply_exercise_overrides = cms._apply_exercise_overrides
+
+    def apply_exercise_overrides(connection) -> None:
+        original_apply_exercise_overrides(connection)
+        _ensure_question_override_columns(connection)
+        rows = connection.execute("SELECT * FROM content_exercise_overrides").fetchall()
+        for row in rows:
+            exercise_type = (row["exercise_type"] or "").strip()
+            difficulty = (row["difficulty"] or "").strip()
+            updates = []
+            params = []
+            if exercise_type:
+                updates.append("exercise_type = ?")
+                params.append(exercise_type)
+            if difficulty:
+                updates.append("difficulty = ?")
+                params.append(difficulty)
+            if not updates:
+                continue
+            params.append(row["exercise_id"])
+            connection.execute(
+                f"UPDATE exercises SET {', '.join(updates)} WHERE id = ?",
+                tuple(params),
+            )
+
+    cms._apply_exercise_overrides = apply_exercise_overrides
 
     _content_questions.original = cms._content_questions
     cms._content_questions = _content_questions
